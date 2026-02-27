@@ -232,10 +232,10 @@ export default function BzTracker() {
           {/* Logo */}
           <div style={{ padding:"16px 0 14px", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, overflow:"hidden", minHeight:60 }}>
             <div style={{ width:36, height:36, background:"var(--acc)", borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-              <span className="bc" style={{ fontSize:15, fontWeight:900, color:"#080a10" }}>TC</span>
+              <span className="bc" style={{ fontSize:15, fontWeight:900, color:"#080a10" }}>RA</span>
             </div>
             <div className="sb-text" style={{ marginLeft:10 }}>
-              <div className="bc" style={{ fontSize:17, fontWeight:900, letterSpacing:"0.06em" }}>TICRA</div>
+              <div className="bc" style={{ fontSize:17, fontWeight:900, letterSpacing:"0.06em" }}>RACKER</div>
               <div className="label-sm">Team Tracker</div>
             </div>
           </div>
@@ -435,7 +435,7 @@ function LiveTracker({ players, setPage }) {
       <div className="card" style={{ textAlign:"center", marginBottom:18, background:"var(--s2)", border:"1px solid var(--b2)" }}>
         <div className="label-sm" style={{ marginBottom:8 }}>HALF {rounds.length>=12?2:1} · ROUND {rounds.length+1}</div>
         <div style={{ display:"flex", justifyContent:"center", gap:40, alignItems:"flex-end" }}>
-          <div><div className="bc" style={{ fontSize:80, fontWeight:900, color:"var(--green)", lineHeight:1 }}>{score.us}</div><div style={{ fontSize:12, fontWeight:700, color:"var(--green)", letterSpacing:"0.08em" }}>TICRA</div></div>
+          <div><div className="bc" style={{ fontSize:80, fontWeight:900, color:"var(--green)", lineHeight:1 }}>{score.us}</div><div style={{ fontSize:12, fontWeight:700, color:"var(--green)", letterSpacing:"0.08em" }}>RACKER</div></div>
           <div style={{ fontSize:30, color:"var(--t3)", paddingBottom:12 }}>:</div>
           <div><div className="bc" style={{ fontSize:80, fontWeight:900, color:"var(--red)", lineHeight:1 }}>{score.them}</div><div style={{ fontSize:12, fontWeight:700, color:"var(--red)", letterSpacing:"0.08em" }}>{opp.toUpperCase()}</div></div>
         </div>
@@ -481,11 +481,20 @@ function LiveTracker({ players, setPage }) {
 
 /* ════ SCRIM LOG ════ */
 function ScrimLog({ setPage }) {
-  const [scrims, setScrims] = useState([]);
-  const [filter, setFilter] = useState({ map:"All", res:"All", q:"" });
-  const [sel, setSel]       = useState(null);
+  const [scrims, setScrims]       = useState([]);
+  const [filter, setFilter]       = useState({ map:"All", res:"All", q:"" });
+  const [sel, setSel]             = useState(null);
+  const [showImport, setShowImport] = useState(false);
+  const [savedApiKey, setSavedApiKey] = useState("");
+  const [importData, setImportData] = useState({ matchId:"", apiKey:"", teamName:"" });
+  const [importState, setImportState] = useState("idle");
+  const [importPreview, setImportPreview] = useState(null);
+  const [importError, setImportError] = useState("");
 
-  useEffect(()=>{ api.get("/api/scrims").then(d=>{ if(Array.isArray(d)) setScrims(d); }).catch(()=>{}); },[]);
+  useEffect(()=>{
+    api.get("/api/scrims").then(d=>{ if(Array.isArray(d)) setScrims(d); }).catch(()=>{});
+    api.get("/api/settings").then(d=>{ if(d?.henrik_api_key) setSavedApiKey(d.henrik_api_key); }).catch(()=>{});
+  },[]);
 
   const filtered = scrims.filter(s=>{
     if(filter.map!=="All"&&s.map!==filter.map) return false;
@@ -496,6 +505,51 @@ function ScrimLog({ setPage }) {
 
   const del = id => { api.delete(`/api/scrims/${id}`).catch(()=>{}); setScrims(p=>p.filter(s=>s.id!==id)); setSel(null); };
 
+  const handleImportFetch = async () => {
+    if (!importData.matchId.trim()) return;
+    const keyToUse = importData.apiKey.trim() || savedApiKey;
+    if (!keyToUse) return;
+    setImportState("loading");
+    setImportError("");
+    try {
+      const result = await api.post("/api/scrims/import", {
+        matchId:  importData.matchId.trim(),
+        apiKey:   importData.apiKey.trim() || undefined, // server uses saved key if omitted
+        teamName: importData.teamName.trim(),
+      });
+      if (result.error) { setImportError(result.error); setImportState("error"); return; }
+      setImportPreview(result);
+      setImportState("preview");
+    } catch(e) {
+      setImportError(e.message || "Failed to fetch match");
+      setImportState("error");
+    }
+  };
+
+  const handleImportSave = async () => {
+    if (!importPreview) return;
+    setImportState("saving");
+    try {
+      const saved = await api.post("/api/scrims", importPreview);
+      if (saved.id) {
+        setScrims(p => [saved, ...p]);
+        setShowImport(false);
+        setImportData({ matchId:"", apiKey:"", teamName:"" });
+        setImportPreview(null);
+        setImportState("idle");
+      }
+    } catch(e) {
+      setImportError(e.message || "Failed to save scrim");
+      setImportState("error");
+    }
+  };
+
+  const resetImport = () => {
+    setImportState("idle");
+    setImportPreview(null);
+    setImportError("");
+  };
+
   return (
     <div style={{ padding:"28px 32px" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24 }}>
@@ -503,18 +557,26 @@ function ScrimLog({ setPage }) {
           <div className="bc" style={{ fontSize:38, fontWeight:900, letterSpacing:"0.04em" }}>SCRIM LOG</div>
           <div style={{ color:"var(--t2)", fontSize:13, marginTop:2 }}>{scrims.length} games tracked</div>
         </div>
-        <button className="btn btn-acc" onClick={()=>setPage("tracker")}><div className="ldot"/> New Game</button>
+        <div style={{ display:"flex", gap:8 }}>
+          <button className="btn btn-ghost" onClick={()=>{ setShowImport(true); resetImport(); }}>⬇ Import from Riot</button>
+          <button className="btn btn-acc" onClick={()=>setPage("tracker")}><div className="ldot"/> New Game</button>
+        </div>
       </div>
+
       <div style={{ display:"flex", gap:10, marginBottom:18 }}>
         <input type="text" placeholder="Search opponent..." style={{ width:200 }} value={filter.q} onChange={e=>setFilter(f=>({...f,q:e.target.value}))}/>
         <select style={{ width:140 }} value={filter.map} onChange={e=>setFilter(f=>({...f,map:e.target.value}))}><option>All</option>{MAPS.map(m=><option key={m}>{m}</option>)}</select>
         <select style={{ width:120 }} value={filter.res} onChange={e=>setFilter(f=>({...f,res:e.target.value}))}><option>All</option><option value="win">Wins</option><option value="loss">Losses</option></select>
       </div>
+
       {scrims.length===0 ? (
         <div className="card" style={{ textAlign:"center", padding:"60px 20px" }}>
           <div style={{ fontSize:32, marginBottom:12 }}>≡</div>
           <div className="bc" style={{ fontSize:20, fontWeight:700, marginBottom:8 }}>No Scrims Yet</div>
-          <button className="btn btn-acc" onClick={()=>setPage("tracker")}><div className="ldot"/> Start Tracking</button>
+          <div style={{ display:"flex", gap:10, justifyContent:"center" }}>
+            <button className="btn btn-ghost" onClick={()=>{ setShowImport(true); resetImport(); }}>⬇ Import from Riot</button>
+            <button className="btn btn-acc" onClick={()=>setPage("tracker")}><div className="ldot"/> Start Tracking</button>
+          </div>
         </div>
       ) : (
         <div className="card" style={{ padding:0, overflow:"hidden" }}>
@@ -535,6 +597,8 @@ function ScrimLog({ setPage }) {
           </table>
         </div>
       )}
+
+      {/* ── Detail Modal ── */}
       {sel && (
         <Modal onClose={()=>setSel(null)} title={`vs ${sel.opp}`}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
@@ -551,6 +615,102 @@ function ScrimLog({ setPage }) {
             {JSON.parse(sel.rounds||"[]").map((r,i)=><div key={i} className={`pip pip-${r}`}>{i+1}</div>)}
           </div>
           <button className="btn btn-red" style={{ width:"100%", justifyContent:"center" }} onClick={()=>del(sel.id)}>Delete Scrim</button>
+        </Modal>
+      )}
+
+      {/* ── Import Modal ── */}
+      {showImport && (
+        <Modal onClose={()=>setShowImport(false)} title="Import Scrim from Riot">
+          {importState === "preview" && importPreview ? (
+            <div>
+              <div style={{ marginBottom:16, padding:"14px 16px", background:"var(--b2)", borderRadius:"var(--r)", border:"1px solid var(--border)" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
+                  <span className="chip chip-blue">{importPreview.map}</span>
+                  <span className={`chip ${importPreview.res==="win"?"chip-green":"chip-red"}`}>{importPreview.res==="win"?"▲ Win":"▼ Loss"}</span>
+                  <span className="bc" style={{ fontSize:22, fontWeight:900, color:importPreview.res==="win"?"var(--green)":"var(--red)" }}>{importPreview.score}</span>
+                </div>
+                <div style={{ fontSize:13, color:"var(--t2)", marginBottom:6 }}>Date: <b style={{ color:"var(--t1)" }}>{importPreview.date}</b></div>
+                <div style={{ fontSize:13, color:"var(--t2)", marginBottom:6 }}>Opponent: <b style={{ color:"var(--t1)" }}>vs {importPreview.opp}</b></div>
+                <div style={{ fontSize:13, color:"var(--t2)", marginBottom:8 }}>Agents:</div>
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:10 }}>
+                  {JSON.parse(importPreview.comp||"[]").map((a,i)=><AgentBadge key={i} name={a} size={32}/>)}
+                </div>
+                <div style={{ fontSize:13, color:"var(--t2)", marginBottom:6 }}>Rounds:</div>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
+                  {JSON.parse(importPreview.rounds||"[]").map((r,i)=><div key={i} className={`pip pip-${r}`}>{i+1}</div>)}
+                </div>
+              </div>
+              <div style={{ fontSize:12, color:"var(--t3)", marginBottom:16 }}>
+                ✓ Match parsed successfully. Review above and save to your scrim log.
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button className="btn btn-ghost" style={{ flex:1 }} onClick={resetImport}>← Back</button>
+                <button className="btn btn-acc" style={{ flex:2, justifyContent:"center" }} onClick={handleImportSave} disabled={importState==="saving"}>
+                  {importState==="saving" ? "Saving…" : "Save to Scrim Log"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ fontSize:13, color:"var(--t2)", marginBottom:16, lineHeight:1.6 }}>
+                Paste a Riot match ID to automatically import the scrim. You can find the match ID in your Valorant client logs after the game ends.
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
+                <div>
+                  <div className="label-sm" style={{ marginBottom:5 }}>Match ID *</div>
+                  <input
+                    type="text"
+                    placeholder="e.g. 01234567-89ab-cdef-0123-456789abcdef"
+                    style={{ width:"100%" }}
+                    value={importData.matchId}
+                    onChange={e=>setImportData(d=>({...d,matchId:e.target.value}))}
+                  />
+                </div>
+                <div>
+                  <div className="label-sm" style={{ marginBottom:5 }}>HenrikDev API Key {savedApiKey ? <span style={{ color:"var(--green)", fontWeight:600 }}>✓ Saved</span> : "*"}</div>
+                  {savedApiKey ? (
+                    <div style={{ fontSize:12, color:"var(--t3)", padding:"8px 12px", background:"var(--b2)", borderRadius:"var(--r)", border:"1px solid var(--border)" }}>
+                      Using saved key ending in <b style={{ color:"var(--t2)" }}>…{savedApiKey.slice(-6)}</b>. Leave blank to use it, or paste a different key below.
+                    </div>
+                  ) : null}
+                  <input
+                    type="password"
+                    placeholder={savedApiKey ? "Override saved key (optional)" : "Get yours free at dash.henrikdev.xyz"}
+                    style={{ width:"100%", marginTop: savedApiKey ? 6 : 0 }}
+                    value={importData.apiKey}
+                    onChange={e=>setImportData(d=>({...d,apiKey:e.target.value}))}
+                  />
+                </div>
+                <div>
+                  <div className="label-sm" style={{ marginBottom:5 }}>Your Team Player Name (optional)</div>
+                  <input
+                    type="text"
+                    placeholder="e.g. dom — helps identify which side is yours"
+                    style={{ width:"100%" }}
+                    value={importData.teamName}
+                    onChange={e=>setImportData(d=>({...d,teamName:e.target.value}))}
+                  />
+                </div>
+              </div>
+              {importState==="error" && (
+                <div style={{ color:"var(--red)", fontSize:12, marginBottom:12, padding:"8px 12px", background:"rgba(255,80,80,0.08)", borderRadius:"var(--r)", border:"1px solid rgba(255,80,80,0.2)" }}>
+                  ✕ {importError}
+                </div>
+              )}
+              <button
+                className="btn btn-acc"
+                style={{ width:"100%", justifyContent:"center" }}
+                onClick={handleImportFetch}
+                disabled={importState==="loading" || !importData.matchId.trim() || (!importData.apiKey.trim() && !savedApiKey)}
+              >
+                {importState==="loading" ? "Fetching match…" : "Fetch Match →"}
+              </button>
+              <div style={{ marginTop:14, padding:"10px 14px", background:"var(--b2)", borderRadius:"var(--r)", fontSize:12, color:"var(--t3)", lineHeight:1.7 }}>
+                <b style={{ color:"var(--t2)" }}>How to get your Match ID:</b><br/>
+                After a scrim, open <code>%localappdata%\VALORANT\Saved\Logs\ShooterGame.log</code> and search for <code>matchID</code> — it looks like a UUID.
+              </div>
+            </div>
+          )}
         </Modal>
       )}
     </div>
@@ -1941,8 +2101,8 @@ function CalendarPage({ isAdmin=true }) {
 
 /* ════ AUTH WRAPPER — replaces default export ════ */
 // Store token in memory
-let _token = localStorage.getItem("ticra_token") || null;
-let _user  = JSON.parse(localStorage.getItem("ticra_user") || "null");
+let _token = localStorage.getItem("racker_token") || null;
+let _user  = JSON.parse(localStorage.getItem("racker_user") || "null");
 
 const authApi = {
   get: (path) => fetch(`${API}${path}`, { headers: _token ? { Authorization:`Bearer ${_token}` } : {} }).then(r=>r.json()),
@@ -1961,7 +2121,7 @@ export function AuthApp() {
   useEffect(()=>{
     if (_token) {
       authApi.get("/auth/me")
-        .then(d=>{ if(d.id){ setUser(d); _user=d; localStorage.setItem("ticra_user", JSON.stringify(d)); } else { logout(); } })
+        .then(d=>{ if(d.id){ setUser(d); _user=d; localStorage.setItem("racker_user", JSON.stringify(d)); } else { logout(); } })
         .catch(()=>logout())
         .finally(()=>setChecking(false));
     } else { setChecking(false); }
@@ -1970,16 +2130,16 @@ export function AuthApp() {
   const login = (token, userData) => {
     _token = token;
     _user  = userData;
-    localStorage.setItem("ticra_token", token);
-    localStorage.setItem("ticra_user", JSON.stringify(userData));
+    localStorage.setItem("racker_token", token);
+    localStorage.setItem("racker_user", JSON.stringify(userData));
     Object.assign(api, authApi);
     setUser(userData);
   };
 
   const logout = () => {
     _token = null; _user = null;
-    localStorage.removeItem("ticra_token");
-    localStorage.removeItem("ticra_user");
+    localStorage.removeItem("racker_token");
+    localStorage.removeItem("racker_user");
     setUser(null);
   };
 
@@ -2017,9 +2177,9 @@ function LoginPage({ onLogin }) {
       <div style={{ width:380 }}>
         <div style={{ textAlign:"center", marginBottom:32 }}>
           <div style={{ width:52, height:52, background:"var(--acc)", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 16px" }}>
-            <span className="bc" style={{ fontSize:28, fontWeight:900, color:"#080a10" }}>TC</span>
+            <span className="bc" style={{ fontSize:28, fontWeight:900, color:"#080a10" }}>RA</span>
           </div>
-          <div className="bc" style={{ fontSize:32, fontWeight:900, letterSpacing:"0.06em" }}>TICRA</div>
+          <div className="bc" style={{ fontSize:32, fontWeight:900, letterSpacing:"0.06em" }}>RACKER</div>
           <div style={{ color:"var(--t3)", fontSize:13, marginTop:4 }}>Team Tracker — Sign in to continue</div>
         </div>
         <div className="card">
@@ -2065,12 +2225,13 @@ function AppWithAuth({ user, onLogout }) {
       case "tasks":     return <Tasks players={players} setPlayers={setPlayers} isAdmin={isAdmin}/>;
       case "calendar":  return <CalendarPage isAdmin={isAdmin}/>;
       case "admin":     return isAdmin ? <AdminPanel/> : <Dashboard setPage={setPage}/>;
+      case "settings":  return isAdmin ? <SettingsPage/> : <Dashboard setPage={setPage}/>;
       default:          return <Dashboard setPage={setPage}/>;
     }
   };
 
   const NAV_WITH_ADMIN = isAdmin
-    ? [...NAV, { key:"admin", label:"Admin", icon:"⚙" }]
+    ? [...NAV, { key:"admin", label:"Admin", icon:"⚙" }, { key:"settings", label:"Settings", icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> }]
     : NAV;
 
   return (
@@ -2081,10 +2242,10 @@ function AppWithAuth({ user, onLogout }) {
           <div style={{ padding:"18px 0 14px", borderBottom:"1px solid var(--b1)", display:"flex", justifyContent:"center", overflow:"hidden" }}>
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
               <div style={{ width:34, height:34, background:"var(--acc)", borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                <span className="bc" style={{ fontSize:20, fontWeight:900, color:"#080a10" }}>TC</span>
+                <span className="bc" style={{ fontSize:20, fontWeight:900, color:"#080a10" }}>RA</span>
               </div>
               <div className="sb-text">
-                <div className="bc" style={{ fontSize:17, fontWeight:900, letterSpacing:"0.06em" }}>TICRA</div>
+                <div className="bc" style={{ fontSize:17, fontWeight:900, letterSpacing:"0.06em" }}>RACKER</div>
                 <div className="label-sm">{isAdmin ? "⚙ Admin" : "Player"}</div>
               </div>
             </div>
@@ -2098,8 +2259,8 @@ function AppWithAuth({ user, onLogout }) {
               </div>
             ))}
           </nav>
-          <div style={{ borderTop:"1px solid var(--b1)", padding:"12px 10px", overflow:"hidden" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+          <div style={{ borderTop:"1px solid var(--b1)", padding:"12px 0", display:"flex", justifyContent:"center", overflow:"hidden" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               <div style={{ width:30, height:30, borderRadius:"50%", background:isAdmin?"var(--acc)":"var(--s3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, color:isAdmin?"#080a10":"var(--t2)", flexShrink:0 }}>
                 {user.username.slice(0,2).toUpperCase()}
               </div>
@@ -2107,8 +2268,8 @@ function AppWithAuth({ user, onLogout }) {
                 <div style={{ fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>{user.username}</div>
                 <div style={{ fontSize:10, color:"var(--t3)", whiteSpace:"nowrap" }}>{user.role}</div>
               </div>
+              <button onClick={onLogout} className="sb-text" style={{ background:"transparent", border:"none", color:"var(--t3)", cursor:"pointer", fontSize:14, padding:"4px 6px", borderRadius:4 }} title="Sign out">⎋</button>
             </div>
-            <button onClick={onLogout} style={{ width:"100%", background:"rgba(255,82,82,0.1)", border:"1px solid rgba(255,82,82,0.25)", color:"#ff5252", cursor:"pointer", fontSize:12, fontWeight:600, padding:"7px", borderRadius:6, letterSpacing:"0.04em" }}>Sign Out</button>
           </div>
         </aside>
         <main key={page} className="fade-up" style={{ flex:1, overflowY:"auto", overflowX:"hidden" }}>
@@ -2116,6 +2277,58 @@ function AppWithAuth({ user, onLogout }) {
         </main>
       </div>
     </>
+  );
+}
+
+/* ════ SETTINGS PAGE ════ */
+function SettingsPage() {
+  const [apiKey, setApiKey]   = useState("");
+  const [saved, setSaved]     = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get("/api/settings").then(d => {
+      if (d?.henrik_api_key) setApiKey(d.henrik_api_key);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
+  const save = async () => {
+    await api.put("/api/settings/henrik_api_key", { value: apiKey.trim() });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  return (
+    <div style={{ padding:"28px 32px", maxWidth:600 }}>
+      <div className="bc" style={{ fontSize:38, fontWeight:900, letterSpacing:"0.04em", marginBottom:4 }}>SETTINGS</div>
+      <div style={{ color:"var(--t2)", fontSize:13, marginBottom:28 }}>App configuration & integrations</div>
+
+      <div className="card" style={{ padding:"24px" }}>
+        <div className="bc" style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>HenrikDev API Key</div>
+        <div style={{ color:"var(--t2)", fontSize:13, marginBottom:16, lineHeight:1.6 }}>
+          Used to auto-import scrim data from Riot. Save it here once and you'll never need to paste it into the import modal again.
+          Get a free key at <a href="https://dash.henrikdev.xyz" target="_blank" rel="noreferrer" style={{ color:"var(--acc)" }}>dash.henrikdev.xyz</a>.
+        </div>
+        {loading ? (
+          <div style={{ color:"var(--t3)", fontSize:13 }}>Loading…</div>
+        ) : (
+          <div style={{ display:"flex", gap:8 }}>
+            <input
+              type="password"
+              placeholder="HDEV-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              style={{ flex:1 }}
+              value={apiKey}
+              onChange={e => { setApiKey(e.target.value); setSaved(false); }}
+            />
+            <button className="btn btn-acc" onClick={save} disabled={!apiKey.trim()}>
+              {saved ? "✓ Saved" : "Save"}
+            </button>
+          </div>
+        )}
+        {saved && <div style={{ color:"var(--green)", fontSize:12, marginTop:8 }}>✓ API key saved successfully</div>}
+      </div>
+    </div>
   );
 }
 

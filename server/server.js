@@ -118,6 +118,10 @@ async function initDB() {
       title   TEXT NOT NULL,
       content TEXT DEFAULT ''
     );
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL DEFAULT ''
+    );
   `);
 
   // Migrate: add gen_note to vods if missing
@@ -332,6 +336,109 @@ app.delete("/api/scrims/:id", requireAdmin, async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── RIOT IMPORT ──────────────────────────────────────────
+// Normalize HenrikDev map path IDs → display names
+const MAP_NAME_MAP = {
+  "/Game/Maps/Ascent/Ascent":   "Ascent",
+  "/Game/Maps/Bonsai/Bonsai":   "Split",
+  "/Game/Maps/Canyon/Canyon":   "Fracture",
+  "/Game/Maps/Duality/Duality": "Bind",
+  "/Game/Maps/Foxtrot/Foxtrot": "Breeze",
+  "/Game/Maps/Port/Port":       "Icebox",
+  "/Game/Maps/Triad/Triad":     "Haven",
+  "/Game/Maps/Pitt/Pitt":       "Pitt",
+};
+
+function normalizeMap(mapId) {
+  if (!mapId) return "Unknown";
+  if (MAP_NAME_MAP[mapId]) return MAP_NAME_MAP[mapId];
+  const parts = mapId.split("/").filter(Boolean);
+  return parts[parts.length - 1] || "Unknown";
+}
+
+app.post("/api/scrims/import", requireAuth, async (req, res) => {
+  try {
+    const { matchId, teamName } = req.body;
+    let { apiKey } = req.body;
+
+    if (!matchId) return res.status(400).json({ error: "matchId is required" });
+
+    // Fall back to saved API key from settings if not provided in request
+    if (!apiKey) {
+      const { rows } = await pool.query("SELECT value FROM settings WHERE key='henrik_api_key'");
+      apiKey = rows[0]?.value || "";
+    }
+    if (!apiKey) return res.status(400).json({ error: "No HenrikDev API key found. Save one in Settings first." });
+
+    const url = `https://api.henrikdev.xyz/valorant/v4/match/na/${encodeURIComponent(matchId)}`;
+    const response = await fetch(url, { headers: { Authorization: apiKey } });
+
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => ({}));
+      return res.status(response.status).json({
+        error: errBody?.errors?.[0]?.message || `HenrikDev API returned ${response.status}`
+      });
+    }
+
+    const data  = await response.json();
+    const match = data?.data;
+    if (!match) return res.status(404).json({ error: "Match not found or empty response" });
+
+    // Map + date
+    const map  = normalizeMap(match.metadata?.map?.id) || match.metadata?.map?.name || "Unknown";
+    const date = match.metadata?.started_at
+      ? new Date(match.metadata.started_at).toISOString().split("T")[0]
+      : new Date().toISOString().split("T")[0];
+
+    const teams   = match.teams   || [];
+    const players = match.players || [];
+
+    // Determine our team by matching a player name/tag against teamName hint
+    let ourTeamId = teams[0]?.team_id || "Blue";
+    if (teamName?.trim()) {
+      const lower = teamName.trim().toLowerCase();
+      const found = players.find(p =>
+        p.name?.toLowerCase().includes(lower) || p.tag?.toLowerCase().includes(lower)
+      );
+      if (found) ourTeamId = found.team_id;
+    }
+
+    const ourTeam   = teams.find(t => t.team_id === ourTeamId);
+    const theirTeam = teams.find(t => t.team_id !== ourTeamId);
+
+    const ourScore   = ourTeam?.rounds?.won  ?? 0;
+    const theirScore = theirTeam?.rounds?.won ?? 0;
+    const result     = ourScore > theirScore ? "win" : "loss";
+    const score      = `${ourScore}-${theirScore}`;
+
+    // Our comp (agents)
+    const ourPlayers = players.filter(p => p.team_id === ourTeamId);
+    const comp = ourPlayers.slice(0, 5).map(p => p.agent?.name || "Unknown");
+
+    // Rounds: "w" we won, "l" we lost
+    const rounds = (match.rounds || []).map(r =>
+      r.winning_team === ourTeamId ? "w" : "l"
+    );
+
+    // Opponent label — use first enemy player's name or "Opponent"
+    const theirPlayers = players.filter(p => p.team_id !== ourTeamId);
+    const opp = theirPlayers[0]?.name || "Opponent";
+
+    res.json({
+      date,
+      map,
+      opp,
+      comp:   JSON.stringify(comp),
+      score,
+      res:    result,
+      rounds: JSON.stringify(rounds),
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── CALENDAR EVENTS ──────────────────────────────────────
 app.get("/api/events", requireAuth, async (req, res) => {
   try { const { rows } = await pool.query("SELECT * FROM calendar_events ORDER BY date,time"); res.json(rows); }
@@ -350,6 +457,27 @@ app.delete("/api/events/:id", requireAdmin, async (req, res) => {
 });
 
 app.get("/health", (req, res) => res.send("Tracler backend running ✅"));
+
+// ── SETTINGS ─────────────────────────────────────────────
+app.get("/api/settings", requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT key, value FROM settings");
+    const obj = {};
+    rows.forEach(r => { obj[r.key] = r.value; });
+    res.json(obj);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put("/api/settings/:key", requireAdmin, async (req, res) => {
+  try {
+    const { value } = req.body;
+    await pool.query(
+      "INSERT INTO settings (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+      [req.params.key, value ?? ""]
+    );
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 // ── PLAYBOOKS ────────────────────────────────────────────
 app.get("/api/playbooks", requireAuth, async (req, res) => {
