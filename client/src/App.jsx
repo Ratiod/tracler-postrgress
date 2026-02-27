@@ -232,10 +232,10 @@ export default function BzTracker() {
           {/* Logo */}
           <div style={{ padding:"16px 0 14px", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, overflow:"hidden", minHeight:60 }}>
             <div style={{ width:36, height:36, background:"var(--acc)", borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-              <span className="bc" style={{ fontSize:15, fontWeight:900, color:"#080a10" }}>RA</span>
+              <span className="bc" style={{ fontSize:15, fontWeight:900, color:"#080a10" }}>TC</span>
             </div>
             <div className="sb-text" style={{ marginLeft:10 }}>
-              <div className="bc" style={{ fontSize:17, fontWeight:900, letterSpacing:"0.06em" }}>RACKER</div>
+              <div className="bc" style={{ fontSize:17, fontWeight:900, letterSpacing:"0.06em" }}>TICRA</div>
               <div className="label-sm">Team Tracker</div>
             </div>
           </div>
@@ -435,7 +435,7 @@ function LiveTracker({ players, setPage }) {
       <div className="card" style={{ textAlign:"center", marginBottom:18, background:"var(--s2)", border:"1px solid var(--b2)" }}>
         <div className="label-sm" style={{ marginBottom:8 }}>HALF {rounds.length>=12?2:1} · ROUND {rounds.length+1}</div>
         <div style={{ display:"flex", justifyContent:"center", gap:40, alignItems:"flex-end" }}>
-          <div><div className="bc" style={{ fontSize:80, fontWeight:900, color:"var(--green)", lineHeight:1 }}>{score.us}</div><div style={{ fontSize:12, fontWeight:700, color:"var(--green)", letterSpacing:"0.08em" }}>RACKER</div></div>
+          <div><div className="bc" style={{ fontSize:80, fontWeight:900, color:"var(--green)", lineHeight:1 }}>{score.us}</div><div style={{ fontSize:12, fontWeight:700, color:"var(--green)", letterSpacing:"0.08em" }}>TICRA</div></div>
           <div style={{ fontSize:30, color:"var(--t3)", paddingBottom:12 }}>:</div>
           <div><div className="bc" style={{ fontSize:80, fontWeight:900, color:"var(--red)", lineHeight:1 }}>{score.them}</div><div style={{ fontSize:12, fontWeight:700, color:"var(--red)", letterSpacing:"0.08em" }}>{opp.toUpperCase()}</div></div>
         </div>
@@ -1941,8 +1941,8 @@ function CalendarPage({ isAdmin=true }) {
 
 /* ════ AUTH WRAPPER — replaces default export ════ */
 // Store token in memory
-let _token = localStorage.getItem("racker_token") || null;
-let _user  = JSON.parse(localStorage.getItem("racker_user") || "null");
+let _token = localStorage.getItem("ticra_token") || null;
+let _user  = JSON.parse(localStorage.getItem("ticra_user") || "null");
 
 const authApi = {
   get: (path) => fetch(`${API}${path}`, { headers: _token ? { Authorization:`Bearer ${_token}` } : {} }).then(r=>r.json()),
@@ -1961,7 +1961,7 @@ export function AuthApp() {
   useEffect(()=>{
     if (_token) {
       authApi.get("/auth/me")
-        .then(d=>{ if(d.id){ setUser(d); _user=d; localStorage.setItem("racker_user", JSON.stringify(d)); } else { logout(); } })
+        .then(d=>{ if(d.id){ setUser(d); _user=d; localStorage.setItem("ticra_user", JSON.stringify(d)); } else { logout(); } })
         .catch(()=>logout())
         .finally(()=>setChecking(false));
     } else { setChecking(false); }
@@ -1970,16 +1970,16 @@ export function AuthApp() {
   const login = (token, userData) => {
     _token = token;
     _user  = userData;
-    localStorage.setItem("racker_token", token);
-    localStorage.setItem("racker_user", JSON.stringify(userData));
+    localStorage.setItem("ticra_token", token);
+    localStorage.setItem("ticra_user", JSON.stringify(userData));
     Object.assign(api, authApi);
     setUser(userData);
   };
 
   const logout = () => {
     _token = null; _user = null;
-    localStorage.removeItem("racker_token");
-    localStorage.removeItem("racker_user");
+    localStorage.removeItem("ticra_token");
+    localStorage.removeItem("ticra_user");
     setUser(null);
   };
 
@@ -2017,9 +2017,9 @@ function LoginPage({ onLogin }) {
       <div style={{ width:380 }}>
         <div style={{ textAlign:"center", marginBottom:32 }}>
           <div style={{ width:52, height:52, background:"var(--acc)", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 16px" }}>
-            <span className="bc" style={{ fontSize:28, fontWeight:900, color:"#080a10" }}>RA</span>
+            <span className="bc" style={{ fontSize:28, fontWeight:900, color:"#080a10" }}>TC</span>
           </div>
-          <div className="bc" style={{ fontSize:32, fontWeight:900, letterSpacing:"0.06em" }}>RACKER</div>
+          <div className="bc" style={{ fontSize:32, fontWeight:900, letterSpacing:"0.06em" }}>TICRA</div>
           <div style={{ color:"var(--t3)", fontSize:13, marginTop:4 }}>Team Tracker — Sign in to continue</div>
         </div>
         <div className="card">
@@ -2081,10 +2081,10 @@ function AppWithAuth({ user, onLogout }) {
           <div style={{ padding:"18px 0 14px", borderBottom:"1px solid var(--b1)", display:"flex", justifyContent:"center", overflow:"hidden" }}>
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
               <div style={{ width:34, height:34, background:"var(--acc)", borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                <span className="bc" style={{ fontSize:20, fontWeight:900, color:"#080a10" }}>RA</span>
+                <span className="bc" style={{ fontSize:20, fontWeight:900, color:"#080a10" }}>TC</span>
               </div>
               <div className="sb-text">
-                <div className="bc" style={{ fontSize:17, fontWeight:900, letterSpacing:"0.06em" }}>RACKER</div>
+                <div className="bc" style={{ fontSize:17, fontWeight:900, letterSpacing:"0.06em" }}>TICRA</div>
                 <div className="label-sm">{isAdmin ? "⚙ Admin" : "Player"}</div>
               </div>
             </div>
@@ -2098,8 +2098,8 @@ function AppWithAuth({ user, onLogout }) {
               </div>
             ))}
           </nav>
-          <div style={{ borderTop:"1px solid var(--b1)", padding:"12px 0", display:"flex", justifyContent:"center", overflow:"hidden" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <div style={{ borderTop:"1px solid var(--b1)", padding:"12px 10px", overflow:"hidden" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
               <div style={{ width:30, height:30, borderRadius:"50%", background:isAdmin?"var(--acc)":"var(--s3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, color:isAdmin?"#080a10":"var(--t2)", flexShrink:0 }}>
                 {user.username.slice(0,2).toUpperCase()}
               </div>
@@ -2107,8 +2107,8 @@ function AppWithAuth({ user, onLogout }) {
                 <div style={{ fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>{user.username}</div>
                 <div style={{ fontSize:10, color:"var(--t3)", whiteSpace:"nowrap" }}>{user.role}</div>
               </div>
-              <button onClick={onLogout} className="sb-text" style={{ background:"transparent", border:"none", color:"var(--t3)", cursor:"pointer", fontSize:14, padding:"4px 6px", borderRadius:4 }} title="Sign out">⎋</button>
             </div>
+            <button onClick={onLogout} style={{ width:"100%", background:"rgba(255,82,82,0.1)", border:"1px solid rgba(255,82,82,0.25)", color:"#ff5252", cursor:"pointer", fontSize:12, fontWeight:600, padding:"7px", borderRadius:6, letterSpacing:"0.04em" }}>Sign Out</button>
           </div>
         </aside>
         <main key={page} className="fade-up" style={{ flex:1, overflowY:"auto", overflowX:"hidden" }}>
