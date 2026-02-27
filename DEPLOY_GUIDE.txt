@@ -1,0 +1,139 @@
+# TRACLER — CLEAN DEPLOYMENT GUIDE
+# Supabase (DB) + Railway (Backend) + Vercel (Frontend)
+# =====================================================
+
+## OVERVIEW
+You will:
+1. Create a new GitHub repo with the clean project files
+2. Set up Supabase (free Postgres database)
+3. Deploy backend to Railway
+4. Deploy frontend to Vercel
+
+Total time: ~15 minutes
+
+---
+
+## STEP 1 — CREATE NEW GITHUB REPO
+
+1. Go to https://github.com/new
+2. Name it: tracler
+3. Set to Public (or Private — either works)
+4. Do NOT check "Add README" or anything else
+5. Click "Create repository"
+6. GitHub will show you a page with commands — leave it open
+
+Now in Command Prompt, pick a fresh folder (e.g. your Desktop):
+
+    cd C:\Users\tyran\Desktop
+    mkdir tracler
+    cd tracler
+
+Extract the zip I gave you into this folder so it looks like:
+
+    C:\Users\tyran\Desktop\tracler\
+        server\
+            server.js
+            package.json
+        client\
+            src\
+                App.jsx
+                main.jsx
+            index.html
+            package.json
+            vite.config.js
+        package.json
+        .gitignore
+
+Then run:
+
+    git init
+    git add .
+    git commit -m "initial commit"
+    git branch -M main
+    git remote add origin https://github.com/YOUR_USERNAME/tracler.git
+    git push -u origin main
+
+Replace YOUR_USERNAME with your actual GitHub username.
+
+---
+
+## STEP 2 — SET UP SUPABASE (Free Database)
+
+1. Go to https://supabase.com → Sign up with GitHub
+2. Click "New Project"
+   - Name: tracler
+   - Database Password: make something strong, SAVE IT
+   - Region: pick closest to your team
+3. Wait ~2 minutes for it to provision
+4. Go to: Settings → Database → Connection string → URI tab
+5. Copy the URI — it looks like:
+   postgresql://postgres:YOURPASSWORD@db.xxxxxxxxx.supabase.co:5432/postgres
+
+⚠️  Replace [YOUR-PASSWORD] in the URI with your actual password
+
+✅ SAVE THIS URI — you need it in Step 3
+
+---
+
+## STEP 3 — DEPLOY BACKEND TO RAILWAY
+
+1. Go to https://railway.app → Sign in with GitHub
+2. Click "New Project" → "Deploy from GitHub repo"
+3. Select your tracler repo
+4. Once it appears, click the service card
+5. Go to "Variables" tab → click "+ New Variable":
+   - Key:   DATABASE_URL
+   - Value: (paste your Supabase URI from Step 2)
+6. Go to "Settings" → "Networking" → click "Generate Domain"
+7. Copy your Railway URL — looks like:
+   https://tracler-production.up.railway.app
+
+✅ SAVE THIS URL — you need it in Step 4
+
+Test it works — open this in your browser:
+   https://YOUR-RAILWAY-URL/health
+You should see: Tracler backend running ✅
+
+---
+
+## STEP 4 — DEPLOY FRONTEND TO VERCEL
+
+1. Go to https://vercel.com → Sign in with GitHub
+2. Click "Add New Project" → Import your tracler repo
+3. IMPORTANT: Set Root Directory to "client"
+   (click "Edit" next to root directory and type: client)
+4. Expand "Environment Variables" and add:
+   - Key:   VITE_API_URL
+   - Value: https://YOUR-RAILWAY-URL (from Step 3, no trailing slash)
+5. Click "Deploy"
+6. Wait ~1 minute — Vercel gives you a public URL like:
+   https://tracler.vercel.app
+
+---
+
+## STEP 5 — TEST EVERYTHING
+
+1. Open your Vercel URL
+2. Add a player — if it saves ✅
+3. Refresh the page — if the player is still there ✅
+4. Send the URL to a teammate — if they see the same data ✅
+
+You're live!
+
+---
+
+## HOW TO UPDATE THE APP GOING FORWARD
+
+Whenever you make changes, just run:
+
+    git add .
+    git commit -m "describe your change"
+    git push
+
+Railway and Vercel both auto-redeploy on every push. That's it.
+
+---
+
+## IF SOMETHING BREAKS
+
+Paste the error here and it'll get fixed fast.
