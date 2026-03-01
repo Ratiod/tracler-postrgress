@@ -106,6 +106,7 @@ const css = `
   aside.sidebar:hover .nav-item { gap:12px; justify-content:flex-start; padding:9px 10px; }
   aside.sidebar .nav-item .nav-icon { margin:0 auto; }
   aside.sidebar:hover .nav-item .nav-icon { margin:0; }
+  aside.sidebar:hover .sb-logout { display:block !important; }
 `;
 
 const MAPS = ["Abyss","Ascent","Bind","Breeze","Corrode","Fracture","Haven","Icebox","Lotus","Pearl","Split","Sunset"];
@@ -644,7 +645,7 @@ function ScrimLog({ setPage }) {
             <Divider/>
             <div className="label-sm" style={{ marginBottom:8 }}>Round History</div>
             <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginBottom:20 }}>
-              {JSON.parse(sel.rounds||"[]").map((r,i)=><div key={i} className={`pip pip-${r}`}>{i+1}</div>)}
+              {(Array.isArray(sel.rounds)?sel.rounds:(() => { try { return JSON.parse(sel.rounds||"[]"); } catch { return []; } })()).map((r,i)=><div key={i} className={`pip pip-${r}`}>{i+1}</div>)}
             </div>
             {hasStats && (
               <>
@@ -2375,7 +2376,7 @@ function AppWithAuth({ user, onLogout }) {
                 <div style={{ fontSize:12, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{user.username}</div>
                 <div style={{ fontSize:10, color:"var(--t3)", whiteSpace:"nowrap" }}>{user.role}</div>
               </div>
-              <button onClick={onLogout} className="sb-text" style={{ background:"transparent", border:"1px solid var(--b2)", color:"var(--t3)", cursor:"pointer", fontSize:11, fontWeight:600, padding:"4px 10px", borderRadius:4, whiteSpace:"nowrap", letterSpacing:"0.03em", flexShrink:0 }} title="Sign out" onMouseEnter={e=>{e.target.style.color="var(--red)";e.target.style.borderColor="var(--red)";}} onMouseLeave={e=>{e.target.style.color="var(--t3)";e.target.style.borderColor="var(--b2)";}}>Sign out</button>
+              <button onClick={onLogout} style={{ background:"transparent", border:"1px solid var(--b2)", color:"var(--t3)", cursor:"pointer", fontSize:11, fontWeight:600, padding:"4px 10px", borderRadius:4, whiteSpace:"nowrap", letterSpacing:"0.03em", flexShrink:0, display:"none" }} className="sb-logout" title="Sign out" onMouseEnter={e=>{e.target.style.color="var(--red)";e.target.style.borderColor="var(--red)";}} onMouseLeave={e=>{e.target.style.color="var(--t3)";e.target.style.borderColor="var(--b2)";}}>Sign out</button>
             </div>
           </div>
         </aside>
