@@ -645,7 +645,7 @@ function ScrimLog({ setPage }) {
             <Divider/>
             <div className="label-sm" style={{ marginBottom:8 }}>Round History</div>
             <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginBottom:20 }}>
-              {(Array.isArray(sel.rounds)?sel.rounds:(() => { try { return JSON.parse(sel.rounds||"[]"); } catch { return []; } })()).map((r,i)=><div key={i} className={`pip pip-${r}`}>{i+1}</div>)}
+              {(()=>{ try { return Array.isArray(sel.rounds)?sel.rounds:JSON.parse(sel.rounds||"[]"); } catch{ return []; } })().map((r,i)=><div key={i} className={`pip pip-${r}`}>{i+1}</div>)}
             </div>
             {hasStats && (
               <>
@@ -691,11 +691,11 @@ function ScrimLog({ setPage }) {
                 <div style={{ fontSize:13, color:"var(--t2)", marginBottom:6 }}>Opponent: <b style={{ color:"var(--t1)" }}>vs {importPreview.opp}</b></div>
                 <div style={{ fontSize:13, color:"var(--t2)", marginBottom:8 }}>Agents:</div>
                 <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:10 }}>
-                  {(Array.isArray(importPreview.comp) ? importPreview.comp : JSON.parse(importPreview.comp||"[]")).map((a,i)=><AgentBadge key={i} name={a} size={32}/>)}
+                  {(()=>{ try { return Array.isArray(importPreview.comp)?importPreview.comp:JSON.parse(importPreview.comp||"[]"); } catch{ return []; } })().map((a,i)=><AgentBadge key={i} name={a} size={32}/>)}
                 </div>
                 <div style={{ fontSize:13, color:"var(--t2)", marginBottom:6 }}>Rounds:</div>
                 <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
-                  {(Array.isArray(importPreview.rounds) ? importPreview.rounds : JSON.parse(importPreview.rounds||"[]")).map((r,i)=><div key={i} className={`pip pip-${r}`}>{i+1}</div>)}
+                  {(()=>{ try { return Array.isArray(importPreview.rounds)?importPreview.rounds:JSON.parse(importPreview.rounds||"[]"); } catch{ return []; } })().map((r,i)=><div key={i} className={`pip pip-${r}`}>{i+1}</div>)}
                 </div>
               </div>
               <div style={{ fontSize:12, color:"var(--t3)", marginBottom:16 }}>
