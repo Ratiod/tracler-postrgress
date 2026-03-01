@@ -487,6 +487,7 @@ function ScrimLog({ setPage }) {
   const [sel, setSel]             = useState(null);
   const [showImport, setShowImport] = useState(false);
   const [savedApiKey, setSavedApiKey] = useState("");
+  const [helperIp, setHelperIp] = useState(() => localStorage.getItem("racker_helper_ip") || "127.0.0.1");
   const [importData, setImportData] = useState({ matchId:"", apiKey:"", teamName:"" });
   const [importState, setImportState] = useState("idle");
   const [importPreview, setImportPreview] = useState(null);
@@ -496,6 +497,11 @@ function ScrimLog({ setPage }) {
     api.get("/api/scrims").then(d=>{ if(Array.isArray(d)) setScrims(d); }).catch(()=>{});
     api.get("/api/settings").then(d=>{ if(d?.henrik_api_key) setSavedApiKey(d.henrik_api_key); }).catch(()=>{});
   },[]);
+
+  const saveHelperIp = (ip) => {
+    setHelperIp(ip);
+    localStorage.setItem("racker_helper_ip", ip);
+  };
 
   const filtered = scrims.filter(s=>{
     if(filter.map!=="All"&&s.map!==filter.map) return false;
@@ -510,7 +516,8 @@ function ScrimLog({ setPage }) {
     setImportState("loading");
     setImportError("");
     try {
-      const response = await fetch("http://127.0.0.1:7429/import");
+      const url      = `http://${helperIp}:7429/import`;
+      const response = await fetch(url);
       const result   = await response.json();
       if (!response.ok || result.error) {
         setImportError(result.error || "Import failed");
@@ -518,9 +525,10 @@ function ScrimLog({ setPage }) {
         return;
       }
       setImportPreview(result.data);
+      if (result.warning) setImportError(""); // clear any old errors
       setImportState("preview");
     } catch(e) {
-      setImportError("Could not reach Racker Helper. Make sure start-helper.bat is running on this PC.");
+      setImportError(`Could not reach Racker Helper at ${helperIp}:7429. Check the IP and make sure start-helper.bat is running.`);
       setImportState("error");
     }
   };
@@ -713,9 +721,26 @@ function ScrimLog({ setPage }) {
               <div style={{ padding:"12px 14px", background:"var(--b2)", borderRadius:"var(--r)", border:"1px solid var(--border)", marginBottom:16, display:"flex", alignItems:"flex-start", gap:10 }}>
                 <span style={{ fontSize:18, flexShrink:0 }}>🖥</span>
                 <div style={{ fontSize:12, color:"var(--t2)", lineHeight:1.7 }}>
-                  <b style={{ color:"var(--t1)" }}>Racker Helper must be running on this PC.</b><br/>
-                  Double-click <code>start-helper.bat</code> from the helper folder, then click Import below.<br/>
-                  Valorant must also be open. The helper reads your last match automatically.
+                  <b style={{ color:"var(--t1)" }}>Racker Helper must be running.</b><br/>
+                  If a player is running it on their PC, enter their IP below.<br/>
+                  If running on this PC, leave it as <code>127.0.0.1</code>.
+                </div>
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <div className="label-sm" style={{ marginBottom:5 }}>Helper IP Address</div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <input
+                    type="text"
+                    placeholder="127.0.0.1"
+                    style={{ flex:1, fontFamily:"monospace", fontSize:13 }}
+                    value={helperIp}
+                    onChange={e => saveHelperIp(e.target.value.trim())}
+                  />
+                  <button className="btn btn-ghost" style={{ fontSize:11, padding:"4px 10px", whiteSpace:"nowrap" }}
+                    onClick={()=>saveHelperIp("127.0.0.1")}>Reset</button>
+                </div>
+                <div style={{ fontSize:11, color:"var(--t3)", marginTop:4 }}>
+                  Player's helper window shows their Network IP (e.g. 192.168.1.x)
                 </div>
               </div>
               {importState==="error" && (
@@ -2390,9 +2415,12 @@ function AppWithAuth({ user, onLogout }) {
 
 /* ════ SETTINGS PAGE ════ */
 function SettingsPage() {
-  const [apiKey, setApiKey]   = useState("");
-  const [saved, setSaved]     = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [apiKey, setApiKey]     = useState("");
+  const [saved, setSaved]       = useState(false);
+  const [loading, setLoading]   = useState(true);
+  const [showToken, setShowToken] = useState(false);
+  const [tokenCopied, setTokenCopied] = useState(false);
+  const token = localStorage.getItem("racker_token") || "";
 
   useEffect(() => {
     api.get("/api/settings").then(d => {
@@ -2407,10 +2435,41 @@ function SettingsPage() {
     setTimeout(() => setSaved(false), 2500);
   };
 
+  const copyToken = () => {
+    navigator.clipboard.writeText(token);
+    setTokenCopied(true);
+    setTimeout(() => setTokenCopied(false), 2000);
+  };
+
   return (
     <div style={{ padding:"28px 32px", maxWidth:600 }}>
       <div className="bc" style={{ fontSize:38, fontWeight:900, letterSpacing:"0.04em", marginBottom:4 }}>SETTINGS</div>
       <div style={{ color:"var(--t2)", fontSize:13, marginBottom:28 }}>App configuration & integrations</div>
+
+      <div className="card" style={{ padding:"24px", marginBottom:16 }}>
+        <div className="bc" style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>Racker Recorder — Auth Token</div>
+        <div style={{ color:"var(--t2)", fontSize:13, marginBottom:16, lineHeight:1.6 }}>
+          Used by the <b style={{color:"var(--t1)"}}>Racker Recorder</b> desktop app to save scrims automatically.
+          Paste this into the app the first time you save a scrim.
+        </div>
+        <div style={{ display:"flex", gap:8 }}>
+          <input
+            type={showToken ? "text" : "password"}
+            readOnly
+            value={token}
+            style={{ flex:1, fontFamily:"monospace", fontSize:11, color:"var(--t2)", cursor:"default" }}
+          />
+          <button className="btn btn-ghost" onClick={()=>setShowToken(s=>!s)} style={{padding:"4px 10px",fontSize:11}}>
+            {showToken ? "Hide" : "Show"}
+          </button>
+          <button className="btn btn-acc" onClick={copyToken} style={{padding:"4px 14px",fontSize:11}}>
+            {tokenCopied ? "✓ Copied" : "Copy"}
+          </button>
+        </div>
+        <div style={{ fontSize:11, color:"var(--t3)", marginTop:8 }}>
+          ⚠ Keep this private — it gives access to your Racker account.
+        </div>
+      </div>
 
       <div className="card" style={{ padding:"24px" }}>
         <div className="bc" style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>HenrikDev API Key</div>
