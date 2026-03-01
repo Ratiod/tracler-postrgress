@@ -285,7 +285,7 @@ function Dashboard({ setPage }) {
     api.get("/api/tasks").then(d=>{ if(Array.isArray(d)) setPending(d.filter(t=>!t.done).length); }).catch(()=>{});
   },[]);
 
-  const wins = scrims.filter(s=>s.res==="win").length;
+  const wins = scrims.filter(s=>(s.res==="win"||s.res==="W")).length;
   const wr = scrims.length>0 ? Math.round((wins/scrims.length)*100) : null;
 
   return (
@@ -327,7 +327,7 @@ function Dashboard({ setPage }) {
                     <td><span className="chip chip-blue">{s.map}</span></td>
                     <td style={{ fontWeight:600 }}>{s.opp}</td>
                     <td className="bc" style={{ fontSize:18, fontWeight:900 }}>{s.score}</td>
-                    <td><span className={`chip ${s.res==="win"?"chip-green":"chip-red"}`}>{s.res==="win"?"▲ W":"▼ L"}</span></td>
+                    <td><span className={`chip ${(s.res==="win"||s.res==="W")?"chip-green":"chip-red"}`}>{(s.res==="win"||s.res==="W")?"▲ W":"▼ L"}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -506,22 +506,20 @@ function ScrimLog({ setPage }) {
   const del = id => { api.delete(`/api/scrims/${id}`).catch(()=>{}); setScrims(p=>p.filter(s=>s.id!==id)); setSel(null); };
 
   const handleImportFetch = async () => {
-    if (!importData.matchId.trim()) return;
-    const keyToUse = importData.apiKey.trim() || savedApiKey;
-    if (!keyToUse) return;
     setImportState("loading");
     setImportError("");
     try {
-      const result = await api.post("/api/scrims/import", {
-        matchId:  importData.matchId.trim(),
-        apiKey:   importData.apiKey.trim() || undefined, // server uses saved key if omitted
-        teamName: importData.teamName.trim(),
-      });
-      if (result.error) { setImportError(result.error); setImportState("error"); return; }
-      setImportPreview(result);
+      const response = await fetch("http://127.0.0.1:7429/import");
+      const result   = await response.json();
+      if (!response.ok || result.error) {
+        setImportError(result.error || "Import failed");
+        setImportState("error");
+        return;
+      }
+      setImportPreview(result.data);
       setImportState("preview");
     } catch(e) {
-      setImportError(e.message || "Failed to fetch match");
+      setImportError("Could not reach Racker Helper. Make sure start-helper.bat is running on this PC.");
       setImportState("error");
     }
   };
@@ -588,8 +586,8 @@ function ScrimLog({ setPage }) {
                   <td className="mono" style={{ color:"var(--t3)", fontSize:12 }}>{s.date}</td>
                   <td><span className="chip chip-blue">{s.map}</span></td>
                   <td style={{ fontWeight:600 }}>vs {s.opp}</td>
-                  <td><span className="bc" style={{ fontSize:22, fontWeight:900, color:s.res==="win"?"var(--green)":"var(--red)" }}>{s.score}</span></td>
-                  <td><span className={`chip ${s.res==="win"?"chip-green":"chip-red"}`}>{s.res==="win"?"▲ Win":"▼ Loss"}</span></td>
+                  <td><span className="bc" style={{ fontSize:22, fontWeight:900, color:(s.res==="win"||s.res==="W")?"var(--green)":"var(--red)" }}>{s.score}</span></td>
+                  <td><span className={`chip ${(s.res==="win"||s.res==="W")?"chip-green":"chip-red"}`}>{(s.res==="win"||s.res==="W")?"▲ Win":"▼ Loss"}</span></td>
                   <td><button className="btn btn-red" style={{ padding:"3px 9px", fontSize:11 }} onClick={e=>{e.stopPropagation();del(s.id);}}>✕</button></td>
                 </tr>
               ))}
@@ -599,24 +597,83 @@ function ScrimLog({ setPage }) {
       )}
 
       {/* ── Detail Modal ── */}
-      {sel && (
-        <Modal onClose={()=>setSel(null)} title={`vs ${sel.opp}`}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
-            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-              <span className="chip chip-blue">{sel.map}</span>
-              <span className={`chip ${sel.res==="win"?"chip-green":"chip-red"}`}>{sel.res==="win"?"▲ Win":"▼ Loss"}</span>
-              <span style={{ color:"var(--t3)", fontSize:12 }}>{sel.date}</span>
+      {sel && (() => {
+        const playerStats = (() => { try { return Array.isArray(sel.player_stats) ? sel.player_stats : JSON.parse(sel.player_stats||"[]"); } catch { return []; } })();
+        const blueStats   = playerStats.filter(p=>p.side==="blue");
+        const redStats    = playerStats.filter(p=>p.side==="red");
+        const hasStats    = playerStats.length > 0;
+        const ScoreRow = ({p}) => (
+          <tr>
+            <td>
+              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                <AgentBadge name={p.agent} size={22}/>
+                <span className="mono" style={{ fontSize:11, color:"var(--t2)" }}>{p.name}</span>
+              </div>
+            </td>
+            <td style={{ textAlign:"right", fontWeight:700, color:"var(--acc)" }}>{p.acs}</td>
+            <td style={{ textAlign:"right" }}>{p.kills}</td>
+            <td style={{ textAlign:"right", color:"var(--t3)" }}>{p.deaths}</td>
+            <td style={{ textAlign:"right", color:"var(--t3)" }}>{p.assists}</td>
+            <td style={{ textAlign:"right", fontWeight:600, color: p.kd>=1?"var(--green)":"var(--red)" }}>{p.kd}</td>
+            <td style={{ textAlign:"right", color:"var(--t2)" }}>{p.hsRate ?? "—"}%</td>
+            <td style={{ textAlign:"right", color: p.firstBloods>0?"var(--green)":"var(--t3)" }}>{p.firstBloods ?? "—"}</td>
+            <td style={{ textAlign:"right", color:"var(--t3)" }}>{p.plants ?? "—"}</td>
+            <td style={{ textAlign:"right", color:"var(--t3)" }}>{p.defuses ?? "—"}</td>
+            <td style={{ textAlign:"right" }}>
+              {[p.mk5,p.mk4,p.mk3,p.mk2].map((v,i)=>v>0?(
+                <span key={i} style={{ marginRight:3, fontWeight:700, fontSize:10,
+                  color: i===0?"#ffd700": i===1?"#ff5252": i===2?"var(--acc)":"var(--t3)" }}>
+                  {["5K","4K","3K","2K"][i]}×{v}
+                </span>
+              ):null)}
+              {!p.mk2&&!p.mk3&&!p.mk4&&!p.mk5 && <span style={{color:"var(--t3)"}}>—</span>}
+            </td>
+            <td style={{ textAlign:"right", color: p.clutchWon>0?"var(--green)":"var(--t3)" }}>{p.clutchWon ?? "—"}</td>
+          </tr>
+        );
+        return (
+          <Modal onClose={()=>setSel(null)} title={`vs ${sel.opp}`}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                <span className="chip chip-blue">{sel.map}</span>
+                <span className={`chip ${sel.res==="win"||sel.res==="W"?"chip-green":"chip-red"}`}>{sel.res==="win"||sel.res==="W"?"▲ Win":"▼ Loss"}</span>
+                <span style={{ color:"var(--t3)", fontSize:12 }}>{sel.date}</span>
+              </div>
+              <span className="bc" style={{ fontSize:40, fontWeight:900, color:sel.res==="win"||sel.res==="W"?"var(--green)":"var(--red)" }}>{sel.score}</span>
             </div>
-            <span className="bc" style={{ fontSize:40, fontWeight:900, color:sel.res==="win"?"var(--green)":"var(--red)" }}>{sel.score}</span>
-          </div>
-          <Divider/>
-          <div className="label-sm" style={{ marginBottom:8 }}>Round History</div>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginBottom:20 }}>
-            {JSON.parse(sel.rounds||"[]").map((r,i)=><div key={i} className={`pip pip-${r}`}>{i+1}</div>)}
-          </div>
-          <button className="btn btn-red" style={{ width:"100%", justifyContent:"center" }} onClick={()=>del(sel.id)}>Delete Scrim</button>
-        </Modal>
-      )}
+            <Divider/>
+            <div className="label-sm" style={{ marginBottom:8 }}>Round History</div>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginBottom:20 }}>
+              {JSON.parse(sel.rounds||"[]").map((r,i)=><div key={i} className={`pip pip-${r}`}>{i+1}</div>)}
+            </div>
+            {hasStats && (
+              <>
+                <Divider/>
+                <div className="label-sm" style={{ marginBottom:8, color:"var(--acc)" }}>Our Team</div>
+                <div style={{ marginBottom:16, overflowX:"auto" }}>
+                  <table className="tbl" style={{ minWidth:700 }}>
+                    <thead><tr><th>Player</th><th style={{textAlign:"right"}}>ACS</th><th style={{textAlign:"right"}}>K</th><th style={{textAlign:"right"}}>D</th><th style={{textAlign:"right"}}>A</th><th style={{textAlign:"right"}}>K/D</th><th style={{textAlign:"right"}}>HS%</th><th style={{textAlign:"right"}}>FB</th><th style={{textAlign:"right"}}>↑Plant</th><th style={{textAlign:"right"}}>↓Def</th><th style={{textAlign:"right"}}>Multi</th><th style={{textAlign:"right"}}>Clutch</th></tr></thead>
+                    <tbody>{blueStats.map((p,i)=><ScoreRow key={i} p={p}/>)}</tbody>
+                  </table>
+                </div>
+                <div className="label-sm" style={{ marginBottom:8, color:"var(--red)" }}>Opponents</div>
+                <div style={{ marginBottom:20, overflowX:"auto" }}>
+                  <table className="tbl" style={{ minWidth:700 }}>
+                    <thead><tr><th>Player</th><th style={{textAlign:"right"}}>ACS</th><th style={{textAlign:"right"}}>K</th><th style={{textAlign:"right"}}>D</th><th style={{textAlign:"right"}}>A</th><th style={{textAlign:"right"}}>K/D</th><th style={{textAlign:"right"}}>HS%</th><th style={{textAlign:"right"}}>FB</th><th style={{textAlign:"right"}}>↑Plant</th><th style={{textAlign:"right"}}>↓Def</th><th style={{textAlign:"right"}}>Multi</th><th style={{textAlign:"right"}}>Clutch</th></tr></thead>
+                    <tbody>{redStats.map((p,i)=><ScoreRow key={i} p={p}/>)}</tbody>
+                  </table>
+                </div>
+              </>
+            )}
+            {!hasStats && (
+              <div style={{ fontSize:12, color:"var(--t3)", marginBottom:20, padding:"10px 14px", background:"var(--b2)", borderRadius:"var(--r)" }}>
+                No scoreboard data — this scrim was entered manually. Import via the Riot helper to get player stats.
+              </div>
+            )}
+            <button className="btn btn-red" style={{ width:"100%", justifyContent:"center" }} onClick={()=>del(sel.id)}>Delete Scrim</button>
+          </Modal>
+        );
+      })()}
 
       {/* ── Import Modal ── */}
       {showImport && (
@@ -626,18 +683,18 @@ function ScrimLog({ setPage }) {
               <div style={{ marginBottom:16, padding:"14px 16px", background:"var(--b2)", borderRadius:"var(--r)", border:"1px solid var(--border)" }}>
                 <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
                   <span className="chip chip-blue">{importPreview.map}</span>
-                  <span className={`chip ${importPreview.res==="win"?"chip-green":"chip-red"}`}>{importPreview.res==="win"?"▲ Win":"▼ Loss"}</span>
-                  <span className="bc" style={{ fontSize:22, fontWeight:900, color:importPreview.res==="win"?"var(--green)":"var(--red)" }}>{importPreview.score}</span>
+                  <span className={`chip ${importPreview.res==="W"?"chip-green":"chip-red"}`}>{importPreview.res==="W"?"▲ Win":"▼ Loss"}</span>
+                  <span className="bc" style={{ fontSize:22, fontWeight:900, color:importPreview.res==="W"?"var(--green)":"var(--red)" }}>{importPreview.score}</span>
                 </div>
                 <div style={{ fontSize:13, color:"var(--t2)", marginBottom:6 }}>Date: <b style={{ color:"var(--t1)" }}>{importPreview.date}</b></div>
                 <div style={{ fontSize:13, color:"var(--t2)", marginBottom:6 }}>Opponent: <b style={{ color:"var(--t1)" }}>vs {importPreview.opp}</b></div>
                 <div style={{ fontSize:13, color:"var(--t2)", marginBottom:8 }}>Agents:</div>
                 <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:10 }}>
-                  {JSON.parse(importPreview.comp||"[]").map((a,i)=><AgentBadge key={i} name={a} size={32}/>)}
+                  {(Array.isArray(importPreview.comp) ? importPreview.comp : JSON.parse(importPreview.comp||"[]")).map((a,i)=><AgentBadge key={i} name={a} size={32}/>)}
                 </div>
                 <div style={{ fontSize:13, color:"var(--t2)", marginBottom:6 }}>Rounds:</div>
                 <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
-                  {JSON.parse(importPreview.rounds||"[]").map((r,i)=><div key={i} className={`pip pip-${r}`}>{i+1}</div>)}
+                  {(Array.isArray(importPreview.rounds) ? importPreview.rounds : JSON.parse(importPreview.rounds||"[]")).map((r,i)=><div key={i} className={`pip pip-${r}`}>{i+1}</div>)}
                 </div>
               </div>
               <div style={{ fontSize:12, color:"var(--t3)", marginBottom:16 }}>
@@ -652,44 +709,12 @@ function ScrimLog({ setPage }) {
             </div>
           ) : (
             <div>
-              <div style={{ fontSize:13, color:"var(--t2)", marginBottom:16, lineHeight:1.6 }}>
-                Paste a Riot match ID to automatically import the scrim. You can find the match ID in your Valorant client logs after the game ends.
-              </div>
-              <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
-                <div>
-                  <div className="label-sm" style={{ marginBottom:5 }}>Match ID *</div>
-                  <input
-                    type="text"
-                    placeholder="e.g. 01234567-89ab-cdef-0123-456789abcdef"
-                    style={{ width:"100%" }}
-                    value={importData.matchId}
-                    onChange={e=>setImportData(d=>({...d,matchId:e.target.value}))}
-                  />
-                </div>
-                <div>
-                  <div className="label-sm" style={{ marginBottom:5 }}>HenrikDev API Key {savedApiKey ? <span style={{ color:"var(--green)", fontWeight:600 }}>✓ Saved</span> : "*"}</div>
-                  {savedApiKey ? (
-                    <div style={{ fontSize:12, color:"var(--t3)", padding:"8px 12px", background:"var(--b2)", borderRadius:"var(--r)", border:"1px solid var(--border)" }}>
-                      Using saved key ending in <b style={{ color:"var(--t2)" }}>…{savedApiKey.slice(-6)}</b>. Leave blank to use it, or paste a different key below.
-                    </div>
-                  ) : null}
-                  <input
-                    type="password"
-                    placeholder={savedApiKey ? "Override saved key (optional)" : "Get yours free at dash.henrikdev.xyz"}
-                    style={{ width:"100%", marginTop: savedApiKey ? 6 : 0 }}
-                    value={importData.apiKey}
-                    onChange={e=>setImportData(d=>({...d,apiKey:e.target.value}))}
-                  />
-                </div>
-                <div>
-                  <div className="label-sm" style={{ marginBottom:5 }}>Your Team Player Name (optional)</div>
-                  <input
-                    type="text"
-                    placeholder="e.g. dom — helps identify which side is yours"
-                    style={{ width:"100%" }}
-                    value={importData.teamName}
-                    onChange={e=>setImportData(d=>({...d,teamName:e.target.value}))}
-                  />
+              <div style={{ padding:"12px 14px", background:"var(--b2)", borderRadius:"var(--r)", border:"1px solid var(--border)", marginBottom:16, display:"flex", alignItems:"flex-start", gap:10 }}>
+                <span style={{ fontSize:18, flexShrink:0 }}>🖥</span>
+                <div style={{ fontSize:12, color:"var(--t2)", lineHeight:1.7 }}>
+                  <b style={{ color:"var(--t1)" }}>Racker Helper must be running on this PC.</b><br/>
+                  Double-click <code>start-helper.bat</code> from the helper folder, then click Import below.<br/>
+                  Valorant must also be open. The helper reads your last match automatically.
                 </div>
               </div>
               {importState==="error" && (
@@ -701,14 +726,10 @@ function ScrimLog({ setPage }) {
                 className="btn btn-acc"
                 style={{ width:"100%", justifyContent:"center" }}
                 onClick={handleImportFetch}
-                disabled={importState==="loading" || !importData.matchId.trim() || (!importData.apiKey.trim() && !savedApiKey)}
+                disabled={importState==="loading"}
               >
-                {importState==="loading" ? "Fetching match…" : "Fetch Match →"}
+                {importState==="loading" ? "Reading match data…" : "⬇ Import Last Scrim"}
               </button>
-              <div style={{ marginTop:14, padding:"10px 14px", background:"var(--b2)", borderRadius:"var(--r)", fontSize:12, color:"var(--t3)", lineHeight:1.7 }}>
-                <b style={{ color:"var(--t2)" }}>How to get your Match ID:</b><br/>
-                After a scrim, open <code>%localappdata%\VALORANT\Saved\Logs\ShooterGame.log</code> and search for <code>matchID</code> — it looks like a UUID.
-              </div>
             </div>
           )}
         </Modal>
@@ -1062,9 +1083,9 @@ function DataAnalysis({ players=[] }) {
   const [scrims, setScrims] = useState([]);
   useEffect(()=>{ api.get("/api/scrims").then(d=>{ if(Array.isArray(d)) setScrims(d); }).catch(()=>{}); },[]);
 
-  const wins = scrims.filter(s=>s.res==="win").length;
+  const wins = scrims.filter(s=>(s.res==="win"||s.res==="W")).length;
   const wr = scrims.length>0 ? Math.round((wins/scrims.length)*100) : null;
-  const mapStats = MAPS.map(m=>{ const ms=scrims.filter(s=>s.map===m); const mw=ms.filter(s=>s.res==="win").length; return { map:m, games:ms.length, wr:ms.length>0?Math.round((mw/ms.length)*100):null }; }).filter(m=>m.games>0).sort((a,b)=>b.games-a.games);
+  const mapStats = MAPS.map(m=>{ const ms=scrims.filter(s=>s.map===m); const mw=ms.filter(s=>(s.res==="win"||s.res==="W")).length; return { map:m, games:ms.length, wr:ms.length>0?Math.round((mw/ms.length)*100):null }; }).filter(m=>m.games>0).sort((a,b)=>b.games-a.games);
 
   return (
     <div style={{ padding:"28px 32px" }}>
@@ -1096,30 +1117,104 @@ function DataAnalysis({ players=[] }) {
           )}
         </div>
       )}
-      {tab==="player" && (
-        <div className="card" style={{ padding:0, overflow:"hidden" }}>
-          <table className="tbl">
-            <thead><tr><th>Player</th><th>Role</th><th>IGN</th></tr></thead>
-            <tbody>
-              {players.length===0
-                ? <tr><td colSpan={3} style={{ textAlign:"center", color:"var(--t3)", padding:"40px" }}>No players added yet</td></tr>
-                : players.map(p=>(
-                  <tr key={p.id}>
-                    <td>
-                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                        <div style={{ width:30, height:30, borderRadius:"50%", background:"var(--s3)", border:"1px solid var(--b2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, color:"var(--acc)", flexShrink:0 }}>{p.av}</div>
-                        <div style={{ fontWeight:600, fontSize:13 }}>{p.name}</div>
-                      </div>
-                    </td>
-                    <td><span className="chip chip-blue">{p.role||"—"}</span></td>
-                    <td className="mono" style={{ fontSize:12, color:"var(--t3)" }}>{p.ign||"—"}</td>
-                  </tr>
-                ))
-              }
-            </tbody>
-          </table>
-        </div>
-      )}
+      {tab==="player" && (() => {
+        // Aggregate stats from all scrims that have player_stats
+        const allStats = {};
+        scrims.forEach(scrim => {
+          const ps = Array.isArray(scrim.player_stats)
+            ? scrim.player_stats
+            : (() => { try { return JSON.parse(scrim.player_stats||"[]"); } catch { return []; } })();
+          ps.forEach(p => {
+            if (!p.name) return;
+            if (!allStats[p.name]) allStats[p.name] = {
+              name:p.name, agent:p.agent, side:p.side, games:0,
+              totalAcs:0, totalKills:0, totalDeaths:0, totalAssists:0,
+              totalHsRate:0, hsGames:0, totalFb:0, totalClutch:0,
+            };
+            const s = allStats[p.name];
+            s.games++;
+            s.totalAcs     += p.acs     || 0;
+            s.totalKills   += p.kills   || 0;
+            s.totalDeaths  += p.deaths  || 0;
+            s.totalAssists += p.assists || 0;
+            s.side = p.side;
+            if (p.hsRate != null) { s.totalHsRate += p.hsRate; s.hsGames++; }
+            s.totalFb      += p.firstBloods || 0;
+            s.totalClutch  += p.clutchWon   || 0;
+          });
+        });
+        const rows = Object.values(allStats).map(s => ({
+          ...s,
+          avgAcs:    Math.round(s.totalAcs / s.games),
+          avgKills:  Math.round((s.totalKills / s.games) * 10) / 10,
+          avgDeaths: Math.round((s.totalDeaths / s.games) * 10) / 10,
+          avgAssists: Math.round((s.totalAssists / s.games) * 10) / 10,
+          kd:        s.totalDeaths === 0 ? s.totalKills : Math.round((s.totalKills / s.totalDeaths) * 100) / 100,
+          avgHs:     s.hsGames > 0 ? Math.round(s.totalHsRate / s.hsGames) : null,
+        })).sort((a,b) => b.avgAcs - a.avgAcs);
+
+        const [sideFilter, setSideFilter] = React.useState("all");
+        const filtered = sideFilter === "all" ? rows : rows.filter(r => r.side === sideFilter);
+
+        return (
+          <div>
+            <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+              {["all","blue","red"].map(s => (
+                <button key={s} className={`btn ${sideFilter===s?"btn-acc":"btn-ghost"}`} style={{ fontSize:12 }} onClick={()=>setSideFilter(s)}>
+                  {s==="all"?"All Teams":s==="blue"?"Our Team":"Opponents"}
+                </button>
+              ))}
+            </div>
+            {rows.length === 0 ? (
+              <div className="card" style={{ padding:"40px", textAlign:"center", color:"var(--t3)" }}>
+                No player stats yet — import a scrim using the Riot helper to see stats here.
+              </div>
+            ) : (
+              <div className="card" style={{ padding:0, overflow:"hidden" }}>
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Team</th>
+                      <th style={{ textAlign:"right" }}>Games</th>
+                      <th style={{ textAlign:"right" }}>Avg ACS</th>
+                      <th style={{ textAlign:"right" }}>K</th>
+                      <th style={{ textAlign:"right" }}>D</th>
+                      <th style={{ textAlign:"right" }}>A</th>
+                      <th style={{ textAlign:"right" }}>K/D</th>
+                      <th style={{ textAlign:"right" }}>HS%</th>
+                      <th style={{ textAlign:"right" }}>FB</th>
+                      <th style={{ textAlign:"right" }}>Clutch</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((p,i) => (
+                      <tr key={p.name}>
+                        <td>
+                          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                            <AgentBadge name={p.agent} size={24}/>
+                            <span className="mono" style={{ fontSize:12, color:"var(--t2)" }}>{p.name}</span>
+                          </div>
+                        </td>
+                        <td><span className={`chip ${p.side==="blue"?"chip-blue":"chip-red"}`}>{p.side==="blue"?"Our Team":"Opponent"}</span></td>
+                        <td style={{ textAlign:"right", color:"var(--t3)", fontSize:12 }}>{p.games}</td>
+                        <td style={{ textAlign:"right", fontWeight:700, color:"var(--acc)" }}>{p.avgAcs}</td>
+                        <td style={{ textAlign:"right" }}>{p.avgKills}</td>
+                        <td style={{ textAlign:"right", color:"var(--t3)" }}>{p.avgDeaths}</td>
+                        <td style={{ textAlign:"right", color:"var(--t3)" }}>{p.avgAssists}</td>
+                        <td style={{ textAlign:"right", fontWeight:600, color: p.kd >= 1 ? "var(--green)" : "var(--red)" }}>{p.kd}</td>
+                        <td style={{ textAlign:"right" }}>{p.avgHs ?? "—"}%</td>
+                        <td style={{ textAlign:"right", color: p.totalFb>0?"var(--green)":"var(--t3)" }}>{p.totalFb ?? "—"}</td>
+                        <td style={{ textAlign:"right", color: p.totalClutch>0?"var(--green)":"var(--t3)" }}>{p.totalClutch ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -2230,9 +2325,11 @@ function AppWithAuth({ user, onLogout }) {
     }
   };
 
-  const NAV_WITH_ADMIN = isAdmin
-    ? [...NAV, { key:"admin", label:"Admin", icon:"⚙" }, { key:"settings", label:"Settings", icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> }]
-    : NAV;
+  const NAV_WITH_ADMIN = NAV;
+  const ADMIN_NAV = isAdmin ? [
+    { key:"admin",    label:"Admin",    icon:"⚙" },
+    { key:"settings", label:"Settings", icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> },
+  ] : [];
 
   return (
     <>
@@ -2259,16 +2356,26 @@ function AppWithAuth({ user, onLogout }) {
               </div>
             ))}
           </nav>
-          <div style={{ borderTop:"1px solid var(--b1)", padding:"12px 0", display:"flex", justifyContent:"center", overflow:"hidden" }}>
+          {ADMIN_NAV.length > 0 && (
+            <div style={{ borderTop:"1px solid var(--b1)", padding:"6px 8px", flexShrink:0 }}>
+              {ADMIN_NAV.map(n=>(
+                <div key={n.key} className={`nav-item${page===n.key?" on":""}`} onClick={()=>setPage(n.key)} style={{ marginBottom:2 }} title={n.label}>
+                  <span className="nav-icon" style={{ fontSize:14, width:22, textAlign:"center", flexShrink:0, color: page===n.key?"var(--acc)":"var(--t3)" }}>{n.icon}</span>
+                  <span className="sb-text" style={{ flex:1, color:"var(--t3)" }}>{n.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ borderTop:"1px solid var(--b1)", padding:"10px 8px", flexShrink:0, overflow:"hidden" }}>
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               <div style={{ width:30, height:30, borderRadius:"50%", background:isAdmin?"var(--acc)":"var(--s3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, color:isAdmin?"#080a10":"var(--t2)", flexShrink:0 }}>
                 {user.username.slice(0,2).toUpperCase()}
               </div>
-              <div className="sb-text">
-                <div style={{ fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>{user.username}</div>
+              <div className="sb-text" style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:12, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{user.username}</div>
                 <div style={{ fontSize:10, color:"var(--t3)", whiteSpace:"nowrap" }}>{user.role}</div>
               </div>
-              <button onClick={onLogout} className="sb-text" style={{ background:"transparent", border:"none", color:"var(--t3)", cursor:"pointer", fontSize:14, padding:"4px 6px", borderRadius:4 }} title="Sign out">⎋</button>
+              <button onClick={onLogout} className="sb-text" style={{ background:"transparent", border:"1px solid var(--b2)", color:"var(--t3)", cursor:"pointer", fontSize:11, fontWeight:600, padding:"4px 10px", borderRadius:4, whiteSpace:"nowrap", letterSpacing:"0.03em", flexShrink:0 }} title="Sign out" onMouseEnter={e=>{e.target.style.color="var(--red)";e.target.style.borderColor="var(--red)";}} onMouseLeave={e=>{e.target.style.color="var(--t3)";e.target.style.borderColor="var(--b2)";}}>Sign out</button>
             </div>
           </div>
         </aside>
