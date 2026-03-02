@@ -702,7 +702,24 @@ function ScrimLog({ setPage }) {
             <Divider/>
             <div className="label-sm" style={{ marginBottom:8 }}>Round History</div>
             <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginBottom:20 }}>
-              {(()=>{ try { return Array.isArray(sel.rounds)?sel.rounds:JSON.parse(sel.rounds||"[]"); } catch{ return []; } })().map((r,i)=><div key={i} className={`pip pip-${r}`}>{i+1}</div>)}
+              {(()=>{
+                const rounds = (()=>{ try { return Array.isArray(sel.rounds)?sel.rounds:JSON.parse(sel.rounds||"[]"); } catch{ return []; } })();
+                const detail = sel.roundDetail || [];
+                return rounds.map((r,i) => {
+                  const rd = detail[i] || {};
+                  const site = rd.site;
+                  const outcome = rd.outcome;
+                  const outcomeIcon = outcome === "Defuse" ? "💣✂" : outcome === "Detonate" ? "💥" : outcome === "Elimination" ? "" : "";
+                  return (
+                    <div key={i} title={[site ? `Site ${site}` : "", outcome || ""].filter(Boolean).join(" · ")}
+                      style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:1 }}>
+                      <div className={`pip pip-${r}`}>{i+1}</div>
+                      {site && <div style={{ fontSize:8, fontWeight:700, color: site==="A" ? "#a78bfa" : site==="B" ? "#f87171" : site==="C" ? "#34d399" : "#fb923c" }}>{site}</div>}
+                      {outcomeIcon && <div style={{ fontSize:8 }}>{outcomeIcon}</div>}
+                    </div>
+                  );
+                });
+              })()}
             </div>
             {hasStats && (
               <>

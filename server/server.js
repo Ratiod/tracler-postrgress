@@ -128,6 +128,7 @@ async function initDB() {
   await pool.query(`ALTER TABLE vods ADD COLUMN IF NOT EXISTS gen_note TEXT DEFAULT ''`).catch(()=>{});
   // Migrate: add player_stats to scrims if missing
   await pool.query(`ALTER TABLE scrims ADD COLUMN IF NOT EXISTS player_stats TEXT DEFAULT '[]'`).catch(()=>{});
+  await pool.query(`ALTER TABLE scrims ADD COLUMN IF NOT EXISTS round_detail TEXT DEFAULT '[]'`).catch(()=>{});
 
   // Seed admin user if none exist
   const { rows } = await pool.query("SELECT COUNT(*) as count FROM users");
@@ -323,14 +324,18 @@ app.delete("/api/vods/:id", requireAuth, async (req, res) => {
 
 // ── SCRIMS ───────────────────────────────────────────────
 app.get("/api/scrims", requireAuth, async (req, res) => {
-  try { const { rows } = await pool.query("SELECT * FROM scrims ORDER BY id DESC"); res.json(rows); }
+  try {
+    const { rows } = await pool.query("SELECT * FROM scrims ORDER BY id DESC");
+    res.json(rows.map(s => ({ ...s, player_stats: s.player_stats || [], rounds: s.rounds || [], roundDetail: s.round_detail || [] })));
+  }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.post("/api/scrims", requireAuth, async (req, res) => {
   try {
-    const { date, map, opp, comp="[]", score="0-0", res:result="loss", rounds="[]", player_stats="[]" } = req.body;
+    const { date, map, opp, comp="[]", score="0-0", res:result="loss", rounds="[]", player_stats="[]", roundDetail=[] } = req.body;
     const ps = typeof player_stats === "string" ? player_stats : JSON.stringify(player_stats);
-    const { rows } = await pool.query("INSERT INTO scrims (date,map,opp,comp,score,res,rounds,player_stats) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *", [date,map,opp,JSON.stringify(Array.isArray(comp)?comp:JSON.parse(comp)),score,result,JSON.stringify(Array.isArray(rounds)?rounds:JSON.parse(rounds)),ps]);
+    const rd = typeof roundDetail === "string" ? roundDetail : JSON.stringify(roundDetail);
+    const { rows } = await pool.query("INSERT INTO scrims (date,map,opp,comp,score,res,rounds,player_stats,round_detail) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *", [date,map,opp,JSON.stringify(Array.isArray(comp)?comp:JSON.parse(comp)),score,result,JSON.stringify(Array.isArray(rounds)?rounds:JSON.parse(rounds)),ps,rd]);
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -339,7 +344,7 @@ app.get("/api/scrims/:id", requireAuth, async (req, res) => {
     const r = await pool.query("SELECT * FROM scrims WHERE id=$1 AND team_id=$2", [req.params.id, req.user.id]);
     if (r.rows.length === 0) return res.status(404).json({ error: "Not found" });
     const s = r.rows[0];
-    res.json({ ...s, player_stats: s.player_stats || [], rounds: s.rounds || [] });
+    res.json({ ...s, player_stats: s.player_stats || [], rounds: s.rounds || [], roundDetail: s.round_detail || [] });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
