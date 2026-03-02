@@ -487,7 +487,7 @@ function ScrimLog({ setPage }) {
   const [sel, setSel]             = useState(null);
   const [showImport, setShowImport] = useState(false);
   const [savedApiKey, setSavedApiKey] = useState("");
-  const [helperIp, setHelperIp] = useState(() => localStorage.getItem("racker_helper_ip") || "127.0.0.1");
+  const [helperIp, setHelperIp] = useState(() => localStorage.getItem("racker_helper_ip") || "192.168.1.100");
   const [importData, setImportData] = useState({ matchId:"", apiKey:"", teamName:"" });
   const [importState, setImportState] = useState("idle");
   const [importPreview, setImportPreview] = useState(null);
@@ -512,11 +512,59 @@ function ScrimLog({ setPage }) {
 
   const del = id => { api.delete(`/api/scrims/${id}`).catch(()=>{}); setScrims(p=>p.filter(s=>s.id!==id)); setSel(null); };
 
+  const scanForHelper = async () => {
+    // First try saved/local IP
+    const ipsToTry = ["127.0.0.1"];
+    // Add saved IP if different
+    if (helperIp !== "127.0.0.1") ipsToTry.push(helperIp);
+    // Scan common LAN subnets for a helper
+    const localSubnets = ["192.168.1", "192.168.0", "10.0.0", "10.0.1", "172.16.0"];
+    for (const subnet of localSubnets) {
+      for (let i = 1; i <= 254; i++) ipsToTry.push(`${subnet}.${i}`);
+    }
+    for (const ip of ipsToTry) {
+      try {
+        const r = await Promise.race([
+          fetch(`http://${ip}:7429/health`),
+          new Promise((_,rej) => setTimeout(()=>rej(new Error("timeout")), 300)),
+        ]);
+        if (r.ok) {
+          const data = await r.json();
+          if (data.ok) {
+            saveHelperIp(ip);
+            return ip;
+          }
+        }
+      } catch(e) { /* skip */ }
+    }
+    return null;
+  };
+
   const handleImportFetch = async () => {
     setImportState("loading");
     setImportError("");
     try {
-      const url      = `http://${helperIp}:7429/import`;
+      // First try the saved IP quickly
+      let ip = helperIp;
+      try {
+        const health = await Promise.race([
+          fetch(`http://${ip}:7429/health`),
+          new Promise((_,rej) => setTimeout(()=>rej(new Error("timeout")), 800)),
+        ]);
+        if (!health.ok) throw new Error("not ok");
+      } catch(e) {
+        // Saved IP not responding — auto scan
+        setImportError("Helper not found at saved IP, scanning network…");
+        ip = await scanForHelper();
+        if (!ip) {
+          setImportError("Could not find Racker Helper on the network. Make sure start-helper.bat is running.");
+          setImportState("error");
+          return;
+        }
+        setImportError("");
+      }
+
+      const url      = `http://${ip}:7429/import`;
       const response = await fetch(url);
       const result   = await response.json();
       if (!response.ok || result.error) {
@@ -525,10 +573,9 @@ function ScrimLog({ setPage }) {
         return;
       }
       setImportPreview(result.data);
-      if (result.warning) setImportError(""); // clear any old errors
       setImportState("preview");
     } catch(e) {
-      setImportError(`Could not reach Racker Helper at ${helperIp}:7429. Check the IP and make sure start-helper.bat is running.`);
+      setImportError("Could not reach Racker Helper. Make sure start-helper.bat is running.");
       setImportState("error");
     }
   };
@@ -539,7 +586,9 @@ function ScrimLog({ setPage }) {
     try {
       const saved = await api.post("/api/scrims", importPreview);
       if (saved.id) {
-        setScrims(p => [saved, ...p]);
+        // Re-fetch full scrim data to ensure player_stats are included
+        const full = await api.get(`/api/scrims/${saved.id}`).catch(() => saved);
+        setScrims(p => [full || saved, ...p]);
         setShowImport(false);
         setImportData({ matchId:"", apiKey:"", teamName:"" });
         setImportPreview(null);
@@ -726,22 +775,11 @@ function ScrimLog({ setPage }) {
                   If running on this PC, leave it as <code>127.0.0.1</code>.
                 </div>
               </div>
-              <div style={{ marginBottom:12 }}>
-                <div className="label-sm" style={{ marginBottom:5 }}>Helper IP Address</div>
-                <div style={{ display:"flex", gap:8 }}>
-                  <input
-                    type="text"
-                    placeholder="127.0.0.1"
-                    style={{ flex:1, fontFamily:"monospace", fontSize:13 }}
-                    value={helperIp}
-                    onChange={e => saveHelperIp(e.target.value.trim())}
-                  />
-                  <button className="btn btn-ghost" style={{ fontSize:11, padding:"4px 10px", whiteSpace:"nowrap" }}
-                    onClick={()=>saveHelperIp("127.0.0.1")}>Reset</button>
-                </div>
-                <div style={{ fontSize:11, color:"var(--t3)", marginTop:4 }}>
-                  Player's helper window shows their Network IP (e.g. 192.168.1.x)
-                </div>
+              <div style={{ marginBottom:12, fontSize:12, color:"var(--t3)" }}>
+                {helperIp !== "127.0.0.1"
+                  ? <span>✓ Helper found at <code style={{color:"var(--acc)"}}>{helperIp}</code> — <button onClick={()=>saveHelperIp("127.0.0.1")} style={{background:"none",border:"none",color:"var(--t3)",cursor:"pointer",fontSize:11,textDecoration:"underline"}}>reset</button></span>
+                  : <span>Will auto-scan network if helper not found locally</span>
+                }
               </div>
               {importState==="error" && (
                 <div style={{ color:"var(--red)", fontSize:12, marginBottom:12, padding:"8px 12px", background:"rgba(255,80,80,0.08)", borderRadius:"var(--r)", border:"1px solid rgba(255,80,80,0.2)" }}>
