@@ -535,6 +535,44 @@ app.post("/api/scrims/import", requireAuth, async (req, res) => {
   }
 });
 
+// ── OCR SCAN PROXY (calls Anthropic server-side) ─────────
+app.post("/api/ocr-scan", requireAuth, async (req, res) => {
+  try {
+    const { imageBase64, imageMime = "image/png" } = req.body;
+    if (!imageBase64) return res.status(400).json({ error: "imageBase64 required" });
+
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    if (!anthropicKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY not set on server" });
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1000,
+        messages: [{ role: "user", content: [
+          { type: "image", source: { type: "base64", media_type: imageMime, data: imageBase64 } },
+          { type: "text", text: `Extract all player rows from this Valorant scoreboard. Return ONLY a JSON array, no markdown or explanation. Each object must have exactly these keys:\n- name: player name string\n- agent: agent name string or null\n- team: "win" or "lose" (green rows = win, red rows = lose)\n- acs: average combat score number\n- k: kills number\n- d: deaths number\n- a: assists number\n- econ: econ rating number (can be negative)\n- fb: first bloods number\n- pl: plants number\n- def: defuses number\nReturn only the raw JSON array.` }
+        ]}]
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) return res.status(response.status).json({ error: data?.error?.message || "Anthropic API error" });
+
+    const text  = (data.content || []).map(c => c.text || "").join("");
+    const clean = text.replace(/```json|```/g, "").trim();
+    const players = JSON.parse(clean);
+    res.json({ players });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── OCR SCANS ────────────────────────────────────────────
 app.get("/api/ocr-stats", requireAuth, async (req, res) => {
   try {
