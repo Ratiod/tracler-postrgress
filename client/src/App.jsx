@@ -843,6 +843,7 @@ function Playbooks() {
   const [comps, setComps]       = useState([]);
   const [selComp, setSelComp]   = useState(null);
   const [agents, setAgents]     = useState([]);
+  const [mapData, setMapData]   = useState([]);
   const [strats, setStrats]     = useState([]);
   const [blocks, setBlocks]     = useState([]);
   const [activeSide, setActiveSide] = useState("atk");
@@ -851,6 +852,7 @@ function Playbooks() {
   const [addBlockModal, setAddBlockModal] = useState(null);
   const [blockMenuCat, setBlockMenuCat]   = useState(null);
   const [confirmDel, setConfirmDel] = useState(null);
+  const [lightbox, setLightbox]     = useState(null);
   const [newPlaybookModal, setNewPlaybookModal] = useState(false);
   const [newPBForm, setNewPBForm] = useState({ name:"", comp_id:"" });
   const [loading, setLoading]   = useState(false);
@@ -859,18 +861,11 @@ function Playbooks() {
   const DEF_CATS = ["Pistol","Setups","Retakes","Eco/Force"];
   const CATS = activeSide === "atk" ? ATK_CATS : DEF_CATS;
 
-  const MAP_SPLASH = {
-    Ascent:"7eaecc1b-4337-bbf6-6ab9-04b8f06b3319", Bind:"2c9d57ec-4431-9c5e-9bc5-0c5422a9d92b",
-    Breeze:"2fb9a4fd-47b8-4e7d-a969-74b4046ebd53", Fracture:"b529448b-4d60-346e-e89e-00a4c527a405",
-    Haven:"2bee0dc9-4ffe-519b-1cbd-7825ad097159",  Icebox:"e2ad5c54-4114-a870-9641-8ea21279579a",
-    Lotus:"2fe4ed3a-450a-01be-2879-e6f518f06935",  Pearl:"fd267378-4d1d-484f-ff52-77821ed10dc2",
-    Split:"d960549e-485c-e861-8d71-aa9d1aed12a2",  Sunset:"92584fbe-486a-b1b2-9faa-39049ba91d7f",
-    Abyss:"224b0a95-48b9-f703-1bd8-67aca101a61f",  Corrode:"de73aa25-4c1b-9e42-3a9e-3fa9a36de72f",
-  };
-
   useEffect(() => {
     fetch("https://valorant-api.com/v1/agents?isPlayableCharacter=true")
       .then(r=>r.json()).then(d=>{ if(d.data) setAgents(d.data); }).catch(()=>{});
+    fetch("https://valorant-api.com/v1/maps")
+      .then(r=>r.json()).then(d=>{ if(d.data) setMapData(d.data.filter(m=>m.splash).map(m=>({ displayName:m.displayName, splash:m.splash }))); }).catch(()=>{});
     api.get("/api/strats").then(d=>{
       if(Array.isArray(d)) {
         const cs = d.filter(s=>s.cat==="Composition");
@@ -890,8 +885,8 @@ function Playbooks() {
   };
 
   const mapSplash = map => {
-    const id = MAP_SPLASH[map];
-    return id ? `https://media.valorant-api.com/maps/${id}/splash.png` : null;
+    const found = mapData.find(m => m.displayName === map);
+    return found ? found.splash : null;
   };
 
   const openPlaybook = comp => {
@@ -1031,13 +1026,7 @@ function Playbooks() {
                     {cs.length>0 && (
                       <div style={{ display:"flex", flexDirection:"column", gap:12, marginTop:8 }}>
                         {cs.map(s=>(
-                          <div key={s.id} style={{ background:"var(--s2)",border:"1px solid var(--b1)",borderRadius:10,overflow:"hidden",position:"relative" }}>
-                            {s.image_data && <img src={s.image_data} alt={s.name} style={{ width:"100%",display:"block",borderRadius:"10px 10px 0 0" }}/>}
-                            <div style={{ padding:"8px 10px" }}>
-                              <div style={{ fontWeight:600,fontSize:13 }}>{s.name}</div>
-                            </div>
-                            <button onClick={()=>setConfirmDel({type:"strat",id:s.id})} style={{ position:"absolute",top:5,right:5,background:"rgba(0,0,0,0.7)",border:"none",color:"#fff",cursor:"pointer",fontSize:10,borderRadius:4,padding:"2px 5px" }}>✕</button>
-                          </div>
+                          <StratCard key={s.id} strat={s} onDelete={()=>setConfirmDel({type:"strat",id:s.id})} onExpand={setLightbox}/>
                         ))}
                       </div>
                     )}
@@ -1065,6 +1054,12 @@ function Playbooks() {
           })}
         </div>
 
+        {lightbox && (
+          <div onClick={()=>setLightbox(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out" }}>
+            <img src={lightbox} alt="expanded" style={{ maxWidth:"92vw",maxHeight:"90vh",borderRadius:10,objectFit:"contain",boxShadow:"0 8px 64px rgba(0,0,0,0.8)" }}/>
+            <button onClick={()=>setLightbox(null)} style={{ position:"absolute",top:18,right:18,background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",color:"#fff",cursor:"pointer",borderRadius:8,padding:"6px 12px",fontSize:13 }}>✕ Close</button>
+          </div>
+        )}
         {addStratModal && <AddStratModal side={addStratModal.side} category={addStratModal.category} onSave={addStrat} onClose={()=>setAddStratModal(null)}/>}
         {addBlockModal && <AddBlockModal side={addBlockModal.side} category={addBlockModal.category} blockType={addBlockModal.type} onSave={addBlock} onClose={()=>setAddBlockModal(null)}/>}
         {confirmDel && <ConfirmModal title="Delete" message="This cannot be undone." onConfirm={()=>confirmDel.type==="strat"?delStrat(confirmDel.id):delBlock(confirmDel.id)} onCancel={()=>setConfirmDel(null)}/>}
@@ -1152,6 +1147,52 @@ function Playbooks() {
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+function StratCard({ strat, onDelete, onExpand }) {
+  const [imgWidth, setImgWidth] = useState(320);
+  const [dragging, setDragging] = useState(false);
+  const startX = React.useRef(0);
+  const startW = React.useRef(0);
+
+  const onMouseDown = e => {
+    e.preventDefault();
+    setDragging(true);
+    startX.current = e.clientX;
+    startW.current = imgWidth;
+    const onMove = ev => setImgWidth(Math.max(120, Math.min(900, startW.current + ev.clientX - startX.current)));
+    const onUp   = () => { setDragging(false); window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  return (
+    <div style={{ background:"var(--s2)", border:"1px solid var(--b1)", borderRadius:10, overflow:"hidden", position:"relative", display:"inline-flex", flexDirection:"column" }}>
+      {strat.image_data && (
+        <div style={{ position:"relative", display:"inline-block", userSelect:"none" }}>
+          <img
+            src={strat.image_data} alt={strat.name}
+            onClick={() => onExpand(strat.image_data)}
+            style={{ width:imgWidth, maxWidth:"100%", display:"block", cursor:"zoom-in", borderRadius:"10px 10px 0 0" }}
+          />
+          {/* Resize handle */}
+          <div
+            onMouseDown={onMouseDown}
+            style={{ position:"absolute", bottom:0, right:0, width:16, height:16, cursor:"ew-resize",
+              background:"rgba(255,255,255,0.15)", borderRadius:"4px 0 0 0",
+              display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+              <path d="M7 1L1 7M7 4L4 7" stroke="rgba(255,255,255,0.6)" strokeWidth="1.2" strokeLinecap="round"/>
+            </svg>
+          </div>
+        </div>
+      )}
+      <div style={{ padding:"8px 10px", minWidth:120 }}>
+        <div style={{ fontWeight:600, fontSize:13, color:"var(--t1)" }}>{strat.name}</div>
+      </div>
+      <button onClick={onDelete} style={{ position:"absolute", top:5, right:5, background:"rgba(0,0,0,0.7)", border:"none", color:"#fff", cursor:"pointer", fontSize:10, borderRadius:4, padding:"2px 5px" }}>✕</button>
     </div>
   );
 }
@@ -1370,22 +1411,16 @@ function GamePlans() {
 function Compositions() {
   const [comps, setComps]   = useState([]);
   const [agents, setAgents] = useState([]);
+  const [mapData, setMapData] = useState([]);
   const [modal, setModal]   = useState(false);
   const [confirm, setConfirm] = useState(null);
   const [form, setForm]     = useState({ name:"", map:"", agents:["","","","",""] });
 
-  const MAP_SPLASH = {
-    Ascent:"7eaecc1b-4337-bbf6-6ab9-04b8f06b3319", Bind:"2c9d57ec-4431-9c5e-9bc5-0c5422a9d92b",
-    Breeze:"2fb9a4fd-47b8-4e7d-a969-74b4046ebd53", Fracture:"b529448b-4d60-346e-e89e-00a4c527a405",
-    Haven:"2bee0dc9-4ffe-519b-1cbd-7825ad097159",  Icebox:"e2ad5c54-4114-a870-9641-8ea21279579a",
-    Lotus:"2fe4ed3a-450a-01be-2879-e6f518f06935",  Pearl:"fd267378-4d1d-484f-ff52-77821ed10dc2",
-    Split:"d960549e-485c-e861-8d71-aa9d1aed12a2",  Sunset:"92584fbe-486a-b1b2-9faa-39049ba91d7f",
-    Abyss:"224b0a95-48b9-f703-1bd8-67aca101a61f",  Corrode:"de73aa25-4c1b-9e42-3a9e-3fa9a36de72f",
-  };
-
   useEffect(() => {
     fetch("https://valorant-api.com/v1/agents?isPlayableCharacter=true")
       .then(r=>r.json()).then(d=>{ if(d.data) setAgents(d.data); }).catch(()=>{});
+    fetch("https://valorant-api.com/v1/maps")
+      .then(r=>r.json()).then(d=>{ if(d.data) setMapData(d.data.filter(m=>m.splash).map(m=>({ displayName:m.displayName, splash:m.splash }))); }).catch(()=>{});
     api.get("/api/strats").then(d=>{
       if(Array.isArray(d)) setComps(d.filter(s=>s.cat==="Composition"));
     }).catch(()=>{});
@@ -1403,8 +1438,8 @@ function Compositions() {
   };
 
   const mapSplash = map => {
-    const id = MAP_SPLASH[map];
-    return id ? `https://media.valorant-api.com/maps/${id}/splash.png` : null;
+    const found = mapData.find(m => m.displayName === map);
+    return found ? found.splash : null;
   };
 
   const allAgentNames = agents.map(a=>a.displayName).sort();
