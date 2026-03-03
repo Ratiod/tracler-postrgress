@@ -140,6 +140,12 @@ async function initDB() {
       content    TEXT DEFAULT '',
       sort_order INTEGER DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS ocr_scans (
+      id         SERIAL PRIMARY KEY,
+      scanned_at TIMESTAMP DEFAULT NOW(),
+      scanned_by TEXT DEFAULT '',
+      players    TEXT DEFAULT '[]'
+    );
   `);
 
   // Migrate: add gen_note to vods if missing
@@ -527,6 +533,32 @@ app.post("/api/scrims/import", requireAuth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── OCR SCANS ────────────────────────────────────────────
+app.get("/api/ocr-stats", requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT * FROM ocr_scans ORDER BY scanned_at DESC");
+    res.json(rows.map(r => ({ ...r, players: JSON.parse(r.players || "[]") })));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/ocr-stats", requireAuth, async (req, res) => {
+  try {
+    const { players } = req.body;
+    if (!Array.isArray(players) || players.length === 0)
+      return res.status(400).json({ error: "players array required" });
+    const { rows } = await pool.query(
+      "INSERT INTO ocr_scans (scanned_by, players) VALUES ($1,$2) RETURNING *",
+      [req.user.username, JSON.stringify(players)]
+    );
+    res.json({ ...rows[0], players });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete("/api/ocr-stats/:id", requireAdmin, async (req, res) => {
+  try { await pool.query("DELETE FROM ocr_scans WHERE id=$1", [req.params.id]); res.json({ ok:true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── CALENDAR EVENTS ──────────────────────────────────────
