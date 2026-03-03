@@ -1029,10 +1029,10 @@ function Playbooks() {
                   <div>
                     {/* Strat cards first */}
                     {cs.length>0 && (
-                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:10, marginTop:8 }}>
+                      <div style={{ display:"flex", flexDirection:"column", gap:12, marginTop:8 }}>
                         {cs.map(s=>(
                           <div key={s.id} style={{ background:"var(--s2)",border:"1px solid var(--b1)",borderRadius:10,overflow:"hidden",position:"relative" }}>
-                            {s.image_data && <img src={s.image_data} alt={s.name} style={{ width:"100%",aspectRatio:"16/9",objectFit:"cover",display:"block" }}/>}
+                            {s.image_data && <img src={s.image_data} alt={s.name} style={{ width:"100%",display:"block",borderRadius:"10px 10px 0 0" }}/>}
                             <div style={{ padding:"8px 10px" }}>
                               <div style={{ fontWeight:600,fontSize:13 }}>{s.name}</div>
                             </div>
