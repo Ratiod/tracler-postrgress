@@ -214,6 +214,7 @@ export default function BzTracker() {
     switch(page) {
       case "dashboard": return <Dashboard setPage={setPage}/>;
       case "tracker":   return <LiveTracker players={players} setPage={setPage}/>;
+      case "ocr":       return <OCRScanner setPage={setPage}/>;
       case "scrimlog":  return <ScrimLog setPage={setPage}/>;
       case "strategy":  return <Strategy tab={stratTab} setTab={setStratTab}/>;
       case "analysis":  return <DataAnalysis players={players}/>;
@@ -431,7 +432,13 @@ function LiveTracker({ players, setPage }) {
           <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:4 }}><div className="ldot"/><span style={{ fontSize:11, fontWeight:700, letterSpacing:"0.1em", color:"var(--acc)" }}>LIVE</span></div>
           <div className="bc" style={{ fontSize:30, fontWeight:900, letterSpacing:"0.04em" }}>{map} — vs {opp}</div>
         </div>
-        <button className="btn btn-red" onClick={endGame} disabled={saving}>{saving?"Saving...":"End & Save Game"}</button>
+        <div style={{ display:"flex", gap:8 }}>
+          <button className="btn btn-ghost" onClick={()=>setPage("ocr")}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>
+            OCR Stats
+          </button>
+          <button className="btn btn-red" onClick={endGame} disabled={saving}>{saving?"Saving...":"End & Save Game"}</button>
+        </div>
       </div>
       <div className="card" style={{ textAlign:"center", marginBottom:18, background:"var(--s2)", border:"1px solid var(--b2)" }}>
         <div className="label-sm" style={{ marginBottom:8 }}>HALF {rounds.length>=12?2:1} · ROUND {rounds.length+1}</div>
@@ -2783,6 +2790,7 @@ function AppWithAuth({ user, onLogout }) {
     switch(page) {
       case "dashboard": return <Dashboard setPage={setPage}/>;
       case "tracker":   return <LiveTracker players={players} setPage={setPage}/>;
+      case "ocr":       return <OCRScanner setPage={setPage}/>;
       case "scrimlog":  return <ScrimLog setPage={setPage}/>;
       case "strategy":  return <Strategy tab={stratTab} setTab={setStratTab}/>;
       case "analysis":  return <DataAnalysis players={players}/>;
@@ -3058,6 +3066,246 @@ function AdminPanel() {
             </div>
           </div>
         </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ════ OCR SCANNER ════ */
+function OCRScanner({ setPage }) {
+  const [image, setImage]             = useState(null);
+  const [imageBase64, setImageBase64] = useState(null);
+  const [imageMime, setImageMime]     = useState("image/png");
+  const [players, setPlayers]         = useState([]);
+  const [loading, setLoading]         = useState(false);
+  const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState(null);
+  const [dragOver, setDragOver]       = useState(false);
+  const [saved, setSaved]             = useState(false);
+  const fileRef                       = useRef();
+
+  const handleFile = (file) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    setImage(URL.createObjectURL(file));
+    setPlayers([]); setError(null); setSaved(false);
+    setImageMime(file.type || "image/png");
+    const reader = new FileReader();
+    reader.onload = e => setImageBase64(e.target.result.split(",")[1]);
+    reader.readAsDataURL(file);
+  };
+
+  const scan = async () => {
+    if (!imageBase64) return;
+    setLoading(true); setError(null);
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          messages: [{ role: "user", content: [
+            { type: "image", source: { type: "base64", media_type: imageMime, data: imageBase64 } },
+            { type: "text", text: `Extract all player rows from this Valorant scoreboard. Return ONLY a JSON array, no markdown or explanation. Each object must have exactly these keys:\n- name: player name string\n- agent: agent name string or null\n- team: "win" or "lose" (green rows = win, red rows = lose)\n- acs: average combat score number\n- k: kills number\n- d: deaths number\n- a: assists number\n- econ: econ rating number (can be negative)\n- fb: first bloods number\n- pl: plants number\n- def: defuses number\nReturn only the raw JSON array.` }
+          ]}]
+        })
+      });
+      const data = await res.json();
+      const text = (data.content || []).map(c => c.text || "").join("");
+      const clean = text.replace(/```json|```/g, "").trim();
+      setPlayers(JSON.parse(clean));
+    } catch(e) {
+      setError("Could not extract stats — make sure the screenshot shows a clear Valorant scoreboard.");
+    } finally { setLoading(false); }
+  };
+
+  const update = (i, f, v) => setPlayers(p => { const n=[...p]; n[i]={...n[i],[f]:v}; return n; });
+
+  const saveToDb = async () => {
+    if (!players.length) return;
+    setSaving(true); setError(null);
+    try {
+      const res = await api.post("/api/ocr-stats", { players });
+      if (res.error) setError(res.error);
+      else setSaved(true);
+    } catch(e) { setError("Save failed — check your connection."); }
+    finally { setSaving(false); }
+  };
+
+  const exportCSV = () => {
+    const rows = [
+      "Name,Agent,Team,ACS,K,D,A,Econ,FB,PL,DEF",
+      ...players.map(p => `${p.name},${p.agent||""},${p.team},${p.acs},${p.k},${p.d},${p.a},${p.econ},${p.fb},${p.pl},${p.def}`)
+    ].join("\n");
+    const a = document.createElement("a");
+    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(rows);
+    a.download = "scoreboard.csv"; a.click();
+  };
+
+  const winP  = players.filter(p => p.team === "win");
+  const loseP = players.filter(p => p.team === "lose");
+
+  const colStyle = { padding:"8px 10px", fontSize:11, fontWeight:700, letterSpacing:"0.07em",
+    textTransform:"uppercase", color:"var(--t3)", borderBottom:"1px solid var(--b1)", textAlign:"center" };
+  const cellStyle = { padding:"7px 10px", fontSize:13, borderBottom:"1px solid var(--b1)", textAlign:"center", verticalAlign:"middle" };
+  const numInput = (i, f, color) => (
+    <input type="number" value={players[i][f] ?? 0}
+      onChange={e => update(i, f, +e.target.value)}
+      style={{ width:46, background:"transparent", border:"none", color: color || "var(--t1)",
+        fontFamily:"'JetBrains Mono',monospace", fontSize:13, textAlign:"center", outline:"none", padding:"2px 0" }}/>
+  );
+
+  return (
+    <div style={{ padding:"28px 32px", maxWidth:1200 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+          <button className="btn btn-ghost" style={{ padding:"6px 10px" }} onClick={()=>setPage("tracker")}>← Back</button>
+          <div>
+            <div className="bc" style={{ fontSize:32, fontWeight:900, letterSpacing:"0.04em" }}>OCR SCANNER</div>
+            <div style={{ color:"var(--t2)", fontSize:12 }}>Upload a scoreboard screenshot — AI extracts all stats automatically</div>
+          </div>
+        </div>
+        {players.length > 0 && (
+          <div style={{ display:"flex", gap:8 }}>
+            <button className="btn btn-ghost" onClick={exportCSV}>↓ CSV</button>
+            <button className="btn btn-acc" onClick={saveToDb} disabled={saving || saved}>
+              {saved ? "✓ Saved!" : saving ? "Saving…" : "Save to DB"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns: image ? "1fr 1fr" : "1fr", gap:16, marginBottom:20 }}>
+        <div>
+          <div
+            onClick={() => fileRef.current.click()}
+            onDrop={e => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]); }}
+            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            style={{ border:`2px dashed ${dragOver?"var(--acc)":"var(--b2)"}`, borderRadius:"var(--r3)",
+              padding:"40px 24px", textAlign:"center", cursor:"pointer",
+              background: dragOver ? "rgba(212,255,30,0.04)" : "var(--s1)", transition:"all 0.15s" }}>
+            <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }}
+              onChange={e => handleFile(e.target.files[0])} />
+            <div style={{ fontSize:28, marginBottom:10 }}>📷</div>
+            <div style={{ fontWeight:600, color:"var(--t1)", marginBottom:4 }}>
+              {image ? "Drop new image to replace" : "Drop scoreboard screenshot here"}
+            </div>
+            <div style={{ fontSize:12, color:"var(--t3)" }}>Works with in-game, tracker.gg, or any Valorant scoreboard</div>
+          </div>
+
+          {image && (
+            <button className="btn btn-acc" onClick={scan} disabled={loading}
+              style={{ marginTop:12, width:"100%", justifyContent:"center", padding:"12px" }}>
+              {loading
+                ? <><span style={{ animation:"blink 1.2s infinite" }}>●</span>&nbsp; Scanning…</>
+                : "⚡ Extract Player Stats"}
+            </button>
+          )}
+
+          {error && (
+            <div style={{ marginTop:10, padding:"10px 14px", background:"rgba(255,82,82,0.08)",
+              border:"1px solid rgba(255,82,82,0.25)", borderRadius:"var(--r)", color:"var(--red)", fontSize:12 }}>
+              {error}
+            </div>
+          )}
+        </div>
+
+        {image && (
+          <div style={{ borderRadius:"var(--r2)", overflow:"hidden", border:"1px solid var(--b1)", maxHeight:220 }}>
+            <img src={image} alt="scoreboard preview"
+              style={{ width:"100%", height:"100%", objectFit:"cover", objectPosition:"top" }} />
+          </div>
+        )}
+      </div>
+
+      {players.length > 0 && (
+        <div style={{ background:"var(--s1)", border:"1px solid var(--b1)", borderRadius:"var(--r3)", overflow:"hidden" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"28px 200px 130px 62px 62px 62px 62px 62px 62px 62px 62px", background:"var(--s2)" }}>
+            {["#","Player","Agent","ACS","K","D","A","Econ","FB","PL","DEF"].map(h => (
+              <div key={h} style={{ ...colStyle, textAlign: h==="Player"||h==="Agent" ? "left" : "center" }}>{h}</div>
+            ))}
+          </div>
+
+          {winP.length > 0 && <>
+            <div style={{ padding:"6px 12px 2px", fontSize:10, fontWeight:700, letterSpacing:"0.12em",
+              textTransform:"uppercase", color:"var(--green)", borderBottom:"1px solid var(--b1)",
+              display:"flex", alignItems:"center", gap:8 }}>
+              <div style={{ width:24, height:1, background:"var(--green)" }}/> Victory
+            </div>
+            {winP.map(p => { const i = players.indexOf(p); return (
+              <div key={i} style={{ display:"grid", gridTemplateColumns:"28px 200px 130px 62px 62px 62px 62px 62px 62px 62px 62px",
+                background:"rgba(105,240,174,0.03)" }}
+                onMouseEnter={e=>e.currentTarget.style.background="rgba(105,240,174,0.07)"}
+                onMouseLeave={e=>e.currentTarget.style.background="rgba(105,240,174,0.03)"}>
+                <div style={{...cellStyle,color:"var(--t3)",fontSize:11}}>{i+1}</div>
+                <div style={{...cellStyle,textAlign:"left"}}>
+                  <input value={p.name||""} onChange={e=>update(i,"name",e.target.value)}
+                    style={{background:"transparent",border:"none",color:"var(--t1)",fontFamily:"'Barlow Condensed',sans-serif",fontSize:15,fontWeight:700,width:"100%",outline:"none"}}/>
+                </div>
+                <div style={{...cellStyle,textAlign:"left"}}>
+                  <select value={p.agent||""} onChange={e=>update(i,"agent",e.target.value)}
+                    style={{background:"transparent",border:"none",color:"var(--t2)",fontSize:12,cursor:"pointer",padding:0,width:"100%"}}>
+                    <option value="">— agent —</option>
+                    {AGENTS.map(a=><option key={a.name} value={a.name}>{a.name}</option>)}
+                  </select>
+                </div>
+                <div style={cellStyle}>{numInput(i,"acs","var(--acc)")}</div>
+                <div style={cellStyle}>{numInput(i,"k")}</div>
+                <div style={cellStyle}>{numInput(i,"d")}</div>
+                <div style={cellStyle}>{numInput(i,"a")}</div>
+                <div style={cellStyle}>{numInput(i,"econ",p.econ<0?"var(--red)":"var(--t2)")}</div>
+                <div style={cellStyle}>{numInput(i,"fb")}</div>
+                <div style={cellStyle}>{numInput(i,"pl")}</div>
+                <div style={cellStyle}>{numInput(i,"def")}</div>
+              </div>
+            ); })}
+          </>}
+
+          {loseP.length > 0 && <>
+            <div style={{ padding:"6px 12px 2px", fontSize:10, fontWeight:700, letterSpacing:"0.12em",
+              textTransform:"uppercase", color:"var(--red)", borderBottom:"1px solid var(--b1)", marginTop:4,
+              display:"flex", alignItems:"center", gap:8 }}>
+              <div style={{ width:24, height:1, background:"var(--red)" }}/> Defeat
+            </div>
+            {loseP.map(p => { const i = players.indexOf(p); return (
+              <div key={i} style={{ display:"grid", gridTemplateColumns:"28px 200px 130px 62px 62px 62px 62px 62px 62px 62px 62px",
+                background:"rgba(255,82,82,0.03)" }}
+                onMouseEnter={e=>e.currentTarget.style.background="rgba(255,82,82,0.07)"}
+                onMouseLeave={e=>e.currentTarget.style.background="rgba(255,82,82,0.03)"}>
+                <div style={{...cellStyle,color:"var(--t3)",fontSize:11}}>{i+1}</div>
+                <div style={{...cellStyle,textAlign:"left"}}>
+                  <input value={p.name||""} onChange={e=>update(i,"name",e.target.value)}
+                    style={{background:"transparent",border:"none",color:"var(--t1)",fontFamily:"'Barlow Condensed',sans-serif",fontSize:15,fontWeight:700,width:"100%",outline:"none"}}/>
+                </div>
+                <div style={{...cellStyle,textAlign:"left"}}>
+                  <select value={p.agent||""} onChange={e=>update(i,"agent",e.target.value)}
+                    style={{background:"transparent",border:"none",color:"var(--t2)",fontSize:12,cursor:"pointer",padding:0,width:"100%"}}>
+                    <option value="">— agent —</option>
+                    {AGENTS.map(a=><option key={a.name} value={a.name}>{a.name}</option>)}
+                  </select>
+                </div>
+                <div style={cellStyle}>{numInput(i,"acs","var(--acc)")}</div>
+                <div style={cellStyle}>{numInput(i,"k")}</div>
+                <div style={cellStyle}>{numInput(i,"d")}</div>
+                <div style={cellStyle}>{numInput(i,"a")}</div>
+                <div style={cellStyle}>{numInput(i,"econ",p.econ<0?"var(--red)":"var(--t2)")}</div>
+                <div style={cellStyle}>{numInput(i,"fb")}</div>
+                <div style={cellStyle}>{numInput(i,"pl")}</div>
+                <div style={cellStyle}>{numInput(i,"def")}</div>
+              </div>
+            ); })}
+          </>}
+
+          <div style={{ padding:"10px 14px", borderTop:"1px solid var(--b1)", display:"flex", justifyContent:"space-between",
+            alignItems:"center", fontSize:11, color:"var(--t3)" }}>
+            <span>{players.length} players extracted · click any cell to edit</span>
+            <button onClick={exportCSV} style={{ background:"none", border:"none", color:"var(--acc)", cursor:"pointer",
+              fontFamily:"'Barlow Condensed'", fontSize:12, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase" }}>
+              ↓ Export CSV
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
