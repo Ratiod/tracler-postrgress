@@ -858,7 +858,6 @@ function Playbooks() {
   const ATK_CATS = ["Pistol","Defaults","Executes","Eco/Force"];
   const DEF_CATS = ["Pistol","Setups","Retakes","Eco/Force"];
   const CATS = activeSide === "atk" ? ATK_CATS : DEF_CATS;
-  const CAT_ICONS = { Pistol:"🔫", Defaults:"📍", Executes:"⚡", "Eco/Force":"💰", Setups:"🛡", Retakes:"🔄" };
 
   const MAP_SPLASH = {
     Ascent:"7eaecc1b-4337-bbf6-6ab9-04b8f06b3319", Bind:"2c9d57ec-4431-9c5e-9bc5-0c5422a9d92b",
@@ -994,7 +993,6 @@ function Playbooks() {
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: isCollapsed?0:14 }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer" }} onClick={()=>toggleCollapse(colKey)}>
                     <span style={{ fontSize:14 }}>{isCollapsed?"›":"⌄"}</span>
-                    <span style={{ fontSize:15 }}>{CAT_ICONS[cat]||"•"}</span>
                     <span style={{ fontWeight:700, fontSize:15 }}>{cat}</span>
                     <span style={{ fontSize:11, color:"var(--t3)", background:"var(--s3)", borderRadius:10, padding:"1px 8px", fontWeight:600 }}>{cs.length}</span>
                   </div>
@@ -1029,6 +1027,20 @@ function Playbooks() {
 
                 {!isCollapsed && (
                   <div>
+                    {/* Strat cards first */}
+                    {cs.length>0 && (
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:10, marginTop:8 }}>
+                        {cs.map(s=>(
+                          <div key={s.id} style={{ background:"var(--s2)",border:"1px solid var(--b1)",borderRadius:10,overflow:"hidden",position:"relative" }}>
+                            {s.image_data && <img src={s.image_data} alt={s.name} style={{ width:"100%",aspectRatio:"16/9",objectFit:"cover",display:"block" }}/>}
+                            <div style={{ padding:"8px 10px" }}>
+                              <div style={{ fontWeight:600,fontSize:13 }}>{s.name}</div>
+                            </div>
+                            <button onClick={()=>setConfirmDel({type:"strat",id:s.id})} style={{ position:"absolute",top:5,right:5,background:"rgba(0,0,0,0.7)",border:"none",color:"#fff",cursor:"pointer",fontSize:10,borderRadius:4,padding:"2px 5px" }}>✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {/* Text/heading blocks */}
                     {cb.filter(b=>b.block_type!=="image").map(b=>(
                       <div key={b.id} style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"8px 0",borderBottom:"1px solid var(--b1)" }}>
@@ -1043,20 +1055,6 @@ function Playbooks() {
                         <button onClick={()=>setConfirmDel({type:"block",id:b.id})} style={{ position:"absolute",top:6,right:6,background:"rgba(0,0,0,0.7)",border:"none",color:"#fff",cursor:"pointer",fontSize:11,borderRadius:4,padding:"2px 6px" }}>✕</button>
                       </div>
                     ))}
-                    {/* Strat cards */}
-                    {cs.length>0 && (
-                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:10, marginTop:8 }}>
-                        {cs.map(s=>(
-                          <div key={s.id} style={{ background:"var(--s2)",border:"1px solid var(--b1)",borderRadius:10,overflow:"hidden",position:"relative" }}>
-                            {s.image_data && <img src={s.image_data} alt={s.name} style={{ width:"100%",aspectRatio:"16/9",objectFit:"cover",display:"block" }}/>}
-                            <div style={{ padding:"8px 10px" }}>
-                              <div style={{ fontWeight:600,fontSize:13 }}>{s.name}</div>
-                            </div>
-                            <button onClick={()=>setConfirmDel({type:"strat",id:s.id})} style={{ position:"absolute",top:5,right:5,background:"rgba(0,0,0,0.7)",border:"none",color:"#fff",cursor:"pointer",fontSize:10,borderRadius:4,padding:"2px 5px" }}>✕</button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                     {cs.length===0&&cb.length===0 && (
                       <div style={{ fontSize:12,color:"var(--t3)",padding:"4px 0" }}>No content yet</div>
                     )}
