@@ -840,115 +840,402 @@ function Strategy({ tab, setTab }) {
 
 /* ── PLAYBOOKS: PDF embed, saved to DB ── */
 function Playbooks() {
-  const [books, setBooks]   = useState([]);
-  const [sel, setSel]       = useState(null);
-  const [modal, setModal]   = useState(false);
-  const [confirm, setConfirm] = useState(null);
-  const [form, setForm]     = useState({ title:"", url:"", map:"Ascent", side:"atk", description:"" });
+  const [comps, setComps]       = useState([]);
+  const [selComp, setSelComp]   = useState(null);
+  const [agents, setAgents]     = useState([]);
+  const [strats, setStrats]     = useState([]);
+  const [blocks, setBlocks]     = useState([]);
+  const [activeSide, setActiveSide] = useState("atk");
+  const [collapsed, setCollapsed]   = useState({});
+  const [addStratModal, setAddStratModal] = useState(null);
+  const [addBlockModal, setAddBlockModal] = useState(null);
+  const [blockMenuCat, setBlockMenuCat]   = useState(null);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [newPlaybookModal, setNewPlaybookModal] = useState(false);
+  const [newPBForm, setNewPBForm] = useState({ name:"", comp_id:"" });
+  const [loading, setLoading]   = useState(false);
 
-  useEffect(()=>{ api.get("/api/playbooks").then(d=>{ if(Array.isArray(d)){ setBooks(d); if(d.length>0) setSel(d[0]); } }).catch(()=>{}); },[]);
+  const ATK_CATS = ["Pistol","Defaults","Executes","Eco/Force"];
+  const DEF_CATS = ["Pistol","Setups","Retakes","Eco/Force"];
+  const CATS = activeSide === "atk" ? ATK_CATS : DEF_CATS;
+  const CAT_ICONS = { Pistol:"🔫", Defaults:"📍", Executes:"⚡", "Eco/Force":"💰", Setups:"🛡", Retakes:"🔄" };
 
-  const add = async () => {
-    if(!form.title.trim()||!form.url.trim()) return;
-    const d = await api.post("/api/playbooks", form).catch(()=>({ ...form, id:Date.now() }));
-    setBooks(p=>[...p, d]); setSel(d);
-    setModal(false); setForm({ title:"", url:"", map:"Ascent", side:"atk", description:"" });
+  const MAP_SPLASH = {
+    Ascent:"7eaecc1b-4337-bbf6-6ab9-04b8f06b3319", Bind:"2c9d57ec-4431-9c5e-9bc5-0c5422a9d92b",
+    Breeze:"2fb9a4fd-47b8-4e7d-a969-74b4046ebd53", Fracture:"b529448b-4d60-346e-e89e-00a4c527a405",
+    Haven:"2bee0dc9-4ffe-519b-1cbd-7825ad097159",  Icebox:"e2ad5c54-4114-a870-9641-8ea21279579a",
+    Lotus:"2fe4ed3a-450a-01be-2879-e6f518f06935",  Pearl:"fd267378-4d1d-484f-ff52-77821ed10dc2",
+    Split:"d960549e-485c-e861-8d71-aa9d1aed12a2",  Sunset:"92584fbe-486a-b1b2-9faa-39049ba91d7f",
+    Abyss:"224b0a95-48b9-f703-1bd8-67aca101a61f",  Corrode:"de73aa25-4c1b-9e42-3a9e-3fa9a36de72f",
   };
 
-  const del = async (id) => {
-    await api.delete(`/api/playbooks/${id}`).catch(()=>{});
-    const next = books.filter(b=>b.id!==id);
-    setBooks(next); setSel(next.length>0?next[0]:null); setConfirm(null);
+  useEffect(() => {
+    fetch("https://valorant-api.com/v1/agents?isPlayableCharacter=true")
+      .then(r=>r.json()).then(d=>{ if(d.data) setAgents(d.data); }).catch(()=>{});
+    api.get("/api/strats").then(d=>{
+      if(Array.isArray(d)) {
+        const cs = d.filter(s=>s.cat==="Composition");
+        setComps(cs);
+      }
+    }).catch(()=>{});
+  }, []);
+
+  const agentIcon = name => {
+    const a = agents.find(a=>a.displayName.toLowerCase()===name.toLowerCase());
+    return a ? a.displayIcon : null;
   };
 
-  const toEmbedPdf = url => {
-    // Google Drive direct link → embed
-    if(url.includes("drive.google.com/file/d/")) {
-      const id = url.match(/\/d\/([^/]+)/)?.[1];
-      if(id) return `https://drive.google.com/file/d/${id}/preview`;
-    }
-    return url;
+  const getAgents = comp => {
+    try { return Array.isArray(comp.agents)?comp.agents:JSON.parse(comp.agents||"[]"); }
+    catch { return []; }
   };
 
+  const mapSplash = map => {
+    const id = MAP_SPLASH[map];
+    return id ? `https://media.valorant-api.com/maps/${id}/splash.png` : null;
+  };
+
+  const openPlaybook = comp => {
+    setSelComp(comp);
+    setActiveSide("atk");
+    setLoading(true);
+    Promise.all([
+      api.get(`/api/comp-strats?comp_id=${comp.id}`),
+      api.get(`/api/comp-blocks?comp_id=${comp.id}`)
+    ]).then(([s,b])=>{ setStrats(Array.isArray(s)?s:[]); setBlocks(Array.isArray(b)?b:[]); })
+      .catch(()=>{ setStrats([]); setBlocks([]); })
+      .finally(()=>setLoading(false));
+  };
+
+  const addStrat = async (side, category, name, imageData) => {
+    if(!selComp||!name.trim()) return;
+    const s = await api.post("/api/comp-strats",{ comp_id:selComp.id, side, category, name, image_data:imageData }).catch(()=>null);
+    if(s) setStrats(p=>[...p,s]);
+    setAddStratModal(null);
+  };
+
+  const delStrat = async id => {
+    await api.delete(`/api/comp-strats/${id}`).catch(()=>{});
+    setStrats(p=>p.filter(s=>s.id!==id)); setConfirmDel(null);
+  };
+
+  const addBlock = async (side, category, block_type, content) => {
+    if(!selComp) return;
+    const b = await api.post("/api/comp-blocks",{ comp_id:selComp.id, side, category, block_type, content }).catch(()=>null);
+    if(b) setBlocks(p=>[...p,b]);
+    setAddBlockModal(null); setBlockMenuCat(null);
+  };
+
+  const delBlock = async id => {
+    await api.delete(`/api/comp-blocks/${id}`).catch(()=>{});
+    setBlocks(p=>p.filter(b=>b.id!==id)); setConfirmDel(null);
+  };
+
+  const toggleCollapse = key => setCollapsed(p=>({...p,[key]:!p[key]}));
+
+  const catStrats = (cat) => strats.filter(s=>s.side===activeSide&&s.category===cat);
+  const catBlocks = (cat) => blocks.filter(b=>b.side===activeSide&&b.category===cat);
+
+  // If viewing a playbook
+  if(selComp) {
+    const splash = mapSplash(selComp.map);
+    const ags = getAgents(selComp);
+    return (
+      <div>
+        {/* Playbook header banner */}
+        <div style={{ position:"relative", borderRadius:12, overflow:"hidden", marginBottom:20, height:72,
+          background: splash ? `url(${splash}) center/cover` : "var(--s2)",
+          border:"1px solid var(--b1)" }}>
+          <div style={{ position:"absolute", inset:0, background:"linear-gradient(to right, rgba(10,10,15,0.92) 0%, rgba(10,10,15,0.6) 100%)" }}/>
+          <div style={{ position:"relative", display:"flex", alignItems:"center", justifyContent:"space-between", height:"100%", padding:"0 18px" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <button onClick={()=>setSelComp(null)} style={{ background:"none", border:"none", color:"var(--t3)", cursor:"pointer", fontSize:13, display:"flex", alignItems:"center", gap:4 }}>← Back</button>
+              <span className="chip chip-blue" style={{ fontSize:11 }}>{selComp.map}</span>
+              <div style={{ display:"flex", gap:4 }}>
+                {ags.map((ag,i) => {
+                  const icon = agentIcon(ag);
+                  return icon
+                    ? <img key={i} src={icon} alt={ag} title={ag} style={{ width:28,height:28,borderRadius:6,objectFit:"cover",border:"1px solid var(--b2)" }}/>
+                    : <div key={i} style={{ width:28,height:28,borderRadius:6,background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"var(--t2)",border:"1px solid var(--b2)" }}>{ag.slice(0,2)}</div>;
+                })}
+              </div>
+            </div>
+            {/* Side toggle */}
+            <div style={{ display:"flex", borderRadius:8, overflow:"hidden", border:"1px solid var(--b2)" }}>
+              {["atk","def"].map(s=>(
+                <button key={s} onClick={()=>setActiveSide(s)}
+                  style={{ padding:"6px 18px", border:"none", cursor:"pointer", fontWeight:700, fontSize:12,
+                    background: activeSide===s ? (s==="atk"?"var(--acc)":"#7c3aed") : "transparent",
+                    color: activeSide===s ? (s==="atk"?"#000":"#fff") : "var(--t2)", transition:"all 0.15s" }}>
+                  {s==="atk" ? "⚔ Attack" : "🛡 Defense"}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Side block */}
+        <div style={{ background:"var(--s1)", border:"1px solid var(--b1)", borderRadius:12, padding:"20px 24px", marginBottom:16 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20 }}>
+            <div style={{ width:14, height:14, borderRadius:"50%", background: activeSide==="atk"?"#ff5252":"#4fc3f7" }}/>
+            <span style={{ fontWeight:800, fontSize:18 }}>{activeSide==="atk"?"Attack":"Defense"}</span>
+          </div>
+
+          {loading && <div style={{ color:"var(--t3)", padding:20 }}>Loading…</div>}
+
+          {!loading && CATS.map(cat => {
+            const cs = catStrats(cat);
+            const cb = catBlocks(cat);
+            const colKey = activeSide+cat;
+            const isCollapsed = collapsed[colKey];
+            return (
+              <div key={cat} style={{ borderBottom:"1px solid var(--b1)", paddingBottom:16, marginBottom:16 }}>
+                {/* Category header */}
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: isCollapsed?0:14 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer" }} onClick={()=>toggleCollapse(colKey)}>
+                    <span style={{ fontSize:14 }}>{isCollapsed?"›":"⌄"}</span>
+                    <span style={{ fontSize:15 }}>{CAT_ICONS[cat]||"•"}</span>
+                    <span style={{ fontWeight:700, fontSize:15 }}>{cat}</span>
+                    <span style={{ fontSize:11, color:"var(--t3)", background:"var(--s3)", borderRadius:10, padding:"1px 8px", fontWeight:600 }}>{cs.length}</span>
+                  </div>
+                  {!isCollapsed && (
+                    <div style={{ display:"flex", gap:12 }}>
+                      <button onClick={()=>setAddStratModal({side:activeSide,category:cat})}
+                        style={{ background:"none",border:"none",color:"var(--t3)",cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",gap:4 }}>
+                        <span>+</span> Add Strat
+                      </button>
+                      <div style={{ position:"relative" }}>
+                        <button onClick={()=>setBlockMenuCat(blockMenuCat===colKey?null:colKey)}
+                          style={{ background:"none",border:"none",color:"var(--t3)",cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",gap:4 }}>
+                          <span>+</span> Add Block
+                        </button>
+                        {blockMenuCat===colKey && (
+                          <div style={{ position:"absolute",right:0,top:"100%",marginTop:4,background:"var(--s3)",border:"1px solid var(--b2)",borderRadius:8,zIndex:50,minWidth:130,overflow:"hidden" }}>
+                            {[{type:"text",icon:"T",label:"Text"},{type:"heading",icon:"H",label:"Heading"},{type:"image",icon:"🖼",label:"Image"}].map(bt=>(
+                              <div key={bt.type} onClick={()=>{ setAddBlockModal({side:activeSide,category:cat,type:bt.type}); setBlockMenuCat(null); }}
+                                style={{ padding:"9px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,fontSize:13,transition:"background 0.1s" }}
+                                onMouseEnter={e=>e.currentTarget.style.background="var(--s2)"}
+                                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                                <span style={{ fontWeight:700,color:"var(--t2)",width:16,textAlign:"center" }}>{bt.icon}</span>
+                                <span>{bt.label}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {!isCollapsed && (
+                  <div>
+                    {/* Text/heading blocks */}
+                    {cb.filter(b=>b.block_type!=="image").map(b=>(
+                      <div key={b.id} style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"8px 0",borderBottom:"1px solid var(--b1)" }}>
+                        <div style={{ fontSize: b.block_type==="heading"?15:13, fontWeight: b.block_type==="heading"?700:400, color:"var(--t2)", lineHeight:1.6 }}>{b.content}</div>
+                        <button onClick={()=>setConfirmDel({type:"block",id:b.id})} style={{ background:"none",border:"none",color:"var(--t3)",cursor:"pointer",fontSize:11,marginLeft:8,flexShrink:0 }}>✕</button>
+                      </div>
+                    ))}
+                    {/* Image blocks */}
+                    {cb.filter(b=>b.block_type==="image").map(b=>(
+                      <div key={b.id} style={{ position:"relative",marginBottom:8,display:"inline-block" }}>
+                        <img src={b.content} alt="block" style={{ maxWidth:"100%",borderRadius:8,display:"block" }}/>
+                        <button onClick={()=>setConfirmDel({type:"block",id:b.id})} style={{ position:"absolute",top:6,right:6,background:"rgba(0,0,0,0.7)",border:"none",color:"#fff",cursor:"pointer",fontSize:11,borderRadius:4,padding:"2px 6px" }}>✕</button>
+                      </div>
+                    ))}
+                    {/* Strat cards */}
+                    {cs.length>0 && (
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:10, marginTop:8 }}>
+                        {cs.map(s=>(
+                          <div key={s.id} style={{ background:"var(--s2)",border:"1px solid var(--b1)",borderRadius:10,overflow:"hidden",position:"relative" }}>
+                            {s.image_data && <img src={s.image_data} alt={s.name} style={{ width:"100%",aspectRatio:"16/9",objectFit:"cover",display:"block" }}/>}
+                            <div style={{ padding:"8px 10px" }}>
+                              <div style={{ fontWeight:600,fontSize:13 }}>{s.name}</div>
+                            </div>
+                            <button onClick={()=>setConfirmDel({type:"strat",id:s.id})} style={{ position:"absolute",top:5,right:5,background:"rgba(0,0,0,0.7)",border:"none",color:"#fff",cursor:"pointer",fontSize:10,borderRadius:4,padding:"2px 5px" }}>✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {cs.length===0&&cb.length===0 && (
+                      <div style={{ fontSize:12,color:"var(--t3)",padding:"4px 0" }}>No content yet</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {addStratModal && <AddStratModal side={addStratModal.side} category={addStratModal.category} onSave={addStrat} onClose={()=>setAddStratModal(null)}/>}
+        {addBlockModal && <AddBlockModal side={addBlockModal.side} category={addBlockModal.category} blockType={addBlockModal.type} onSave={addBlock} onClose={()=>setAddBlockModal(null)}/>}
+        {confirmDel && <ConfirmModal title="Delete" message="This cannot be undone." onConfirm={()=>confirmDel.type==="strat"?delStrat(confirmDel.id):delBlock(confirmDel.id)} onCancel={()=>setConfirmDel(null)}/>}
+      </div>
+    );
+  }
+
+  // Playbooks list view
   return (
-    <div style={{ display:"grid", gridTemplateColumns:"220px 1fr", gap:18, minHeight:500 }}>
-      {/* sidebar */}
-      <div>
-        <button className="btn btn-acc" style={{ width:"100%", justifyContent:"center", marginBottom:12 }} onClick={()=>setModal(true)}>+ Add Playbook</button>
-        {books.length===0
-          ? <div style={{ color:"var(--t3)", fontSize:12, padding:"8px 4px" }}>No playbooks yet.</div>
-          : books.map(b=>(
-            <div key={b.id} onClick={()=>setSel(b)} style={{ padding:"10px 12px", borderRadius:"var(--r2)", cursor:"pointer", marginBottom:5,
-              background:sel?.id===b.id?"var(--s3)":"var(--s1)", border:`1px solid ${sel?.id===b.id?"var(--b3)":"var(--b1)"}`, transition:"all 0.15s" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
-                <div style={{ fontSize:12, fontWeight:600, marginBottom:4, lineHeight:1.3 }}>{b.title}</div>
-                <button onClick={e=>{ e.stopPropagation(); setConfirm(b); }} style={{ background:"transparent", border:"none", color:"var(--t3)", cursor:"pointer", fontSize:11, padding:"0 2px", flexShrink:0 }}>✕</button>
-              </div>
-              <div style={{ display:"flex", gap:5 }}>
-                <span className="chip chip-blue" style={{ fontSize:10 }}>{b.map}</span>
-                <span className={`chip ${b.side==="atk"?"chip-acc":"chip-purple"}`} style={{ fontSize:10 }}>{b.side==="atk"?"ATK":"DEF"}</span>
-              </div>
-            </div>
-          ))
-        }
-      </div>
-      {/* viewer */}
-      <div>
-        {sel ? (
-          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-            <div className="card" style={{ padding:"14px 18px" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                <div>
-                  <div className="bc" style={{ fontSize:22, fontWeight:700 }}>{sel.title}</div>
-                  {sel.description && <div style={{ fontSize:12, color:"var(--t2)", marginTop:3 }}>{sel.description}</div>}
-                </div>
-                <div style={{ display:"flex", gap:8 }}>
-                  <span className="chip chip-blue">{sel.map}</span>
-                  <span className={`chip ${sel.side==="atk"?"chip-acc":"chip-purple"}`}>{sel.side==="atk"?"ATK":"DEF"}</span>
-                </div>
-              </div>
-            </div>
-            <div style={{ background:"var(--s1)", border:"1px solid var(--b1)", borderRadius:12, overflow:"hidden", height:"68vh" }}>
-              <iframe src={toEmbedPdf(sel.url)} width="100%" height="100%" style={{ border:"none" }} allowFullScreen title={sel.title}/>
-            </div>
-          </div>
-        ) : (
-          <div className="card" style={{ display:"flex", alignItems:"center", justifyContent:"center", minHeight:400 }}>
-            <div style={{ textAlign:"center", color:"var(--t3)" }}>
-              <div style={{ fontSize:36, marginBottom:12 }}>⬡</div>
-              <div className="bc" style={{ fontSize:18, fontWeight:700, color:"var(--t2)", marginBottom:8 }}>No Playbook Selected</div>
-              <button className="btn btn-acc" onClick={()=>setModal(true)}>+ Add Playbook</button>
-            </div>
-          </div>
-        )}
+    <div>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
+        <div>
+          <div style={{ fontSize:22, fontWeight:800 }} className="bc">Playbooks</div>
+          <div style={{ fontSize:13, color:"var(--t3)", marginTop:2 }}>Organized strategy collections by team composition</div>
+        </div>
+        <button className="btn btn-acc" onClick={()=>setNewPlaybookModal(true)}>+ New Playbook</button>
       </div>
 
-      {modal && (
-        <Modal onClose={()=>setModal(false)} title="Add Playbook">
-          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-            <div><div className="label-sm" style={{ marginBottom:6 }}>Title</div><input type="text" value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="e.g. Lotus ATK Default"/></div>
+      {comps.length===0
+        ? <div className="card" style={{ textAlign:"center",padding:"48px 20px",color:"var(--t3)" }}>
+            <div style={{ fontSize:28,marginBottom:8 }}>📋</div>
+            <div style={{ fontWeight:700,color:"var(--t2)",marginBottom:6 }}>No compositions yet</div>
+            <div style={{ fontSize:13 }}>Create a composition first in the Compositions tab</div>
+          </div>
+        : <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:16 }}>
+            {comps.map(comp => {
+              const splash = mapSplash(comp.map);
+              const ags = getAgents(comp);
+              const stratCount = strats.filter(s=>s.comp_id===comp.id).length;
+              return (
+                <div key={comp.id} onClick={()=>openPlaybook(comp)}
+                  style={{ borderRadius:12,overflow:"hidden",border:"1px solid var(--b1)",background:"var(--s1)",cursor:"pointer",transition:"all 0.2s" }}
+                  onMouseEnter={e=>{ e.currentTarget.style.borderColor="var(--b3)"; e.currentTarget.style.transform="translateY(-2px)"; }}
+                  onMouseLeave={e=>{ e.currentTarget.style.borderColor="var(--b1)"; e.currentTarget.style.transform="translateY(0)"; }}>
+                  {/* Map splash */}
+                  <div style={{ position:"relative", height:140, overflow:"hidden", background:"var(--s3)" }}>
+                    {splash && <img src={splash} alt={comp.map} style={{ width:"100%",height:"100%",objectFit:"cover",filter:"brightness(0.45) saturate(0.8)" }}/>}
+                    <div style={{ position:"absolute",inset:0,background:"linear-gradient(to bottom, transparent 20%, rgba(10,10,15,0.95) 100%)" }}/>
+                    <div style={{ position:"absolute",bottom:12,left:14,right:14 }}>
+                      <div style={{ fontWeight:800,fontSize:18,color:"var(--t1)",marginBottom:5,lineHeight:1 }}>{comp.name}</div>
+                      <div style={{ display:"flex",gap:6,alignItems:"center" }}>
+                        <span className="chip chip-blue" style={{ fontSize:10 }}>{comp.map}</span>
+                        <span style={{ fontSize:11,color:"var(--t3)" }}>{stratCount} strats</span>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Agents */}
+                  <div style={{ padding:"10px 12px", display:"flex", gap:5, alignItems:"center" }}>
+                    {ags.map((ag,i) => {
+                      const icon = agentIcon(ag);
+                      return icon
+                        ? <img key={i} src={icon} alt={ag} title={ag} style={{ width:32,height:32,borderRadius:6,objectFit:"cover",border:"1px solid var(--b2)" }}/>
+                        : <div key={i} title={ag} style={{ width:32,height:32,borderRadius:6,background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"var(--t2)",border:"1px solid var(--b2)",fontWeight:700 }}>{ag.slice(0,2)}</div>;
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+      }
+
+      {newPlaybookModal && (
+        <Modal onClose={()=>setNewPlaybookModal(false)} title="Create New Playbook">
+          <div style={{ fontSize:13,color:"var(--t3)",marginBottom:16 }}>Create a playbook to organize strategies for a team composition</div>
+          <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+            <div><div className="label-sm" style={{ marginBottom:6 }}>Name *</div>
+              <input type="text" value={newPBForm.name} onChange={e=>setNewPBForm(f=>({...f,name:e.target.value}))} placeholder="e.g., Haven Main Comp"/>
+            </div>
             <div>
-              <div className="label-sm" style={{ marginBottom:6 }}>PDF URL</div>
-              <input type="text" value={form.url} onChange={e=>setForm(f=>({...f,url:e.target.value}))} placeholder="Google Drive share link or direct PDF URL"/>
-              <div style={{ fontSize:11, color:"var(--t3)", marginTop:5 }}>Tip: Upload to Google Drive → Share → Copy link. Works with any publicly accessible PDF.</div>
+              <div className="label-sm" style={{ marginBottom:6 }}>Composition</div>
+              <select value={newPBForm.comp_id} onChange={e=>setNewPBForm(f=>({...f,comp_id:e.target.value}))}>
+                <option value="">Select composition...</option>
+                {comps.map(c=><option key={c.id} value={c.id}>{c.name} — {c.map}</option>)}
+              </select>
+              <div style={{ fontSize:11,color:"var(--t3)",marginTop:4 }}>The composition includes the map and 5 agents</div>
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              <div><div className="label-sm" style={{ marginBottom:6 }}>Map</div><select value={form.map} onChange={e=>setForm(f=>({...f,map:e.target.value}))}>{MAPS.map(m=><option key={m}>{m}</option>)}</select></div>
-              <div><div className="label-sm" style={{ marginBottom:6 }}>Side</div><select value={form.side} onChange={e=>setForm(f=>({...f,side:e.target.value}))}><option value="atk">Attack</option><option value="def">Defense</option></select></div>
-            </div>
-            <div><div className="label-sm" style={{ marginBottom:6 }}>Description (optional)</div><input type="text" value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Short description"/></div>
-            <div style={{ display:"flex", gap:8 }}>
-              <button className="btn btn-acc" style={{ flex:1, justifyContent:"center" }} onClick={add} disabled={!form.title.trim()||!form.url.trim()}>Save Playbook</button>
-              <button className="btn btn-ghost" onClick={()=>setModal(false)}>Cancel</button>
+            <div style={{ display:"flex",gap:8,marginTop:4 }}>
+              <button className="btn btn-ghost" onClick={()=>setNewPlaybookModal(false)}>Cancel</button>
+              <button className="btn btn-acc" style={{ flex:1,justifyContent:"center" }}
+                disabled={!newPBForm.name.trim()||!newPBForm.comp_id}
+                onClick={()=>{ const comp=comps.find(c=>String(c.id)===String(newPBForm.comp_id)); if(comp){ openPlaybook(comp); setNewPlaybookModal(false); setNewPBForm({name:"",comp_id:""}); } }}>
+                Create Playbook
+              </button>
             </div>
           </div>
         </Modal>
       )}
-      {confirm && (
-        <ConfirmModal title="Delete Playbook" message={`Delete "${confirm.title}"? This cannot be undone.`}
-          onConfirm={()=>del(confirm.id)} onCancel={()=>setConfirm(null)}/>
-      )}
     </div>
+  );
+}
+
+function AddStratModal({ side, category, onSave, onClose }) {
+  const [name, setName]         = useState("");
+  const [imageData, setImageData] = useState("");
+  const [preview, setPreview]   = useState(null);
+
+  const handleImg = e => {
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => { setImageData(ev.target.result); setPreview(ev.target.result); };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <Modal onClose={onClose} title={`Add Strat — ${category}`}>
+      <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+        <div><div className="label-sm" style={{ marginBottom:6 }}>Name</div>
+          <input type="text" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. A Default Fast Execute"/>
+        </div>
+        <div>
+          <div className="label-sm" style={{ marginBottom:6 }}>Upload Image</div>
+          <input type="file" accept="image/*" onChange={handleImg} style={{ fontSize:12 }}/>
+          {preview && <img src={preview} alt="preview" style={{ marginTop:8,width:"100%",borderRadius:8,maxHeight:200,objectFit:"cover" }}/>}
+        </div>
+        <div style={{ display:"flex",gap:8 }}>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-acc" style={{ flex:1,justifyContent:"center" }}
+            onClick={()=>onSave(side,category,name,imageData)} disabled={!name.trim()}>Save Strat</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function AddBlockModal({ side, category, blockType, onSave, onClose }) {
+  const [content, setContent] = useState("");
+  const [imageData, setImageData] = useState("");
+  const [preview, setPreview] = useState(null);
+
+  const handleImg = e => {
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => { setImageData(ev.target.result); setPreview(ev.target.result); };
+    reader.readAsDataURL(file);
+  };
+
+  if(blockType==="image") return (
+    <Modal onClose={onClose} title="Add Image Block">
+      <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+        <div>
+          <div className="label-sm" style={{ marginBottom:6 }}>Upload Image</div>
+          <input type="file" accept="image/*" onChange={handleImg} style={{ fontSize:12 }}/>
+          {preview && <img src={preview} alt="preview" style={{ marginTop:8,width:"100%",borderRadius:8,maxHeight:200,objectFit:"cover" }}/>}
+        </div>
+        <div style={{ display:"flex",gap:8 }}>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-acc" style={{ flex:1,justifyContent:"center" }}
+            onClick={()=>onSave(side,category,"image",imageData)} disabled={!imageData}>Save</button>
+        </div>
+      </div>
+    </Modal>
+  );
+
+  return (
+    <Modal onClose={onClose} title={`Add ${blockType==="heading"?"Heading":"Text"} Block`}>
+      <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+        <div>
+          <div className="label-sm" style={{ marginBottom:6 }}>Content</div>
+          <textarea value={content} onChange={e=>setContent(e.target.value)}
+            placeholder={blockType==="heading"?"Section heading...":"Notes, callouts, timing info..."}
+            style={{ width:"100%",minHeight:80,resize:"vertical",fontSize:13,padding:"8px 10px",borderRadius:6,border:"1px solid var(--b2)",background:"var(--s1)",color:"var(--t1)" }}/>
+        </div>
+        <div style={{ display:"flex",gap:8 }}>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-acc" style={{ flex:1,justifyContent:"center" }}
+            onClick={()=>onSave(side,category,blockType,content)} disabled={!content.trim()}>Save</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -1084,76 +1371,145 @@ function GamePlans() {
 
 function Compositions() {
   const [comps, setComps]   = useState([]);
+  const [agents, setAgents] = useState([]);
   const [modal, setModal]   = useState(false);
   const [confirm, setConfirm] = useState(null);
-  const [form, setForm]     = useState({ name:"", map:"Ascent", side:"atk", agents:[], notes:"" });
+  const [form, setForm]     = useState({ name:"", map:"", agents:["","","","",""] });
 
-  useEffect(()=>{ api.get("/api/strats").then(d=>{ if(Array.isArray(d)) setComps(d.filter(s=>s.cat==="Composition"||!s.cat||s.cat==="Default")); }).catch(()=>{}); },[]);
+  const MAP_SPLASH = {
+    Ascent:"7eaecc1b-4337-bbf6-6ab9-04b8f06b3319", Bind:"2c9d57ec-4431-9c5e-9bc5-0c5422a9d92b",
+    Breeze:"2fb9a4fd-47b8-4e7d-a969-74b4046ebd53", Fracture:"b529448b-4d60-346e-e89e-00a4c527a405",
+    Haven:"2bee0dc9-4ffe-519b-1cbd-7825ad097159",  Icebox:"e2ad5c54-4114-a870-9641-8ea21279579a",
+    Lotus:"2fe4ed3a-450a-01be-2879-e6f518f06935",  Pearl:"fd267378-4d1d-484f-ff52-77821ed10dc2",
+    Split:"d960549e-485c-e861-8d71-aa9d1aed12a2",  Sunset:"92584fbe-486a-b1b2-9faa-39049ba91d7f",
+    Abyss:"224b0a95-48b9-f703-1bd8-67aca101a61f",  Corrode:"de73aa25-4c1b-9e42-3a9e-3fa9a36de72f",
+  };
+
+  useEffect(() => {
+    fetch("https://valorant-api.com/v1/agents?isPlayableCharacter=true")
+      .then(r=>r.json()).then(d=>{ if(d.data) setAgents(d.data); }).catch(()=>{});
+    api.get("/api/strats").then(d=>{
+      if(Array.isArray(d)) setComps(d.filter(s=>s.cat==="Composition"));
+    }).catch(()=>{});
+  }, []);
+
+  const agentIcon = name => {
+    if(!name) return null;
+    const a = agents.find(a=>a.displayName.toLowerCase()===name.toLowerCase());
+    return a ? a.displayIcon : null;
+  };
+
+  const getAgents = comp => {
+    try { return Array.isArray(comp.agents)?comp.agents:JSON.parse(comp.agents||"[]"); }
+    catch { return []; }
+  };
+
+  const mapSplash = map => {
+    const id = MAP_SPLASH[map];
+    return id ? `https://media.valorant-api.com/maps/${id}/splash.png` : null;
+  };
+
+  const allAgentNames = agents.map(a=>a.displayName).sort();
+
+  const setAgent = (i, val) => setForm(f=>{ const ags=[...f.agents]; ags[i]=val; return {...f,agents:ags}; });
 
   const add = () => {
-    if(!form.name.trim()) return;
-    api.post("/api/strats", { ...form, cat:"Composition", description: form.notes })
-      .then(d=>setComps(p=>[...p, d])).catch(()=>setComps(p=>[...p, { ...form, id:Date.now() }]));
-    setModal(false); setForm({ name:"", map:"Ascent", side:"atk", agents:[], notes:"" });
+    if(!form.name.trim()||!form.map) return;
+    const agList = form.agents.filter(Boolean);
+    api.post("/api/strats",{ name:form.name, map:form.map, cat:"Composition", agents:JSON.stringify(agList), side:"atk", description:"" })
+      .then(d=>setComps(p=>[...p,d])).catch(()=>{});
+    setModal(false); setForm({ name:"", map:"", agents:["","","","",""] });
   };
 
   const del = id => { api.delete(`/api/strats/${id}`).catch(()=>{}); setComps(p=>p.filter(c=>c.id!==id)); setConfirm(null); };
 
-  const toggleAgent = name => setForm(f=>({ ...f, agents: f.agents.includes(name)?f.agents.filter(a=>a!==name):[...f.agents,name].slice(0,5) }));
-
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:18 }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
+        <div>
+          <div style={{ fontSize:22, fontWeight:800 }} className="bc">Compositions</div>
+          <div style={{ fontSize:13, color:"var(--t3)", marginTop:2 }}>Create and manage agent compositions</div>
+        </div>
         <button className="btn btn-acc" onClick={()=>setModal(true)}>+ New Composition</button>
       </div>
+
       {comps.length===0
-        ? <div className="card" style={{ textAlign:"center", padding:"48px 20px", color:"var(--t3)" }}><div style={{ fontSize:26, marginBottom:8 }}>⬡</div><div>No compositions yet.</div></div>
-        : <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:12 }}>
-          {comps.map(c=>(
-            <div key={c.id} className="strat-card">
-              <div style={{ padding:"13px 15px", borderBottom:"1px solid var(--b1)", display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
-                <div>
-                  <div style={{ fontWeight:600, marginBottom:7 }}>{c.name}</div>
-                  <div style={{ display:"flex", gap:6 }}>
-                    <span className="chip chip-blue">{c.map}</span>
-                    <span className={`chip ${c.side==="atk"?"chip-acc":"chip-purple"}`}>{c.side==="atk"?"ATK":"DEF"}</span>
+        ? <div className="card" style={{ textAlign:"center",padding:"48px 20px",color:"var(--t3)" }}>
+            <div style={{ fontSize:28,marginBottom:8 }}>⬡</div>
+            <div style={{ fontWeight:700,color:"var(--t2)",marginBottom:6 }}>No compositions yet</div>
+            <button className="btn btn-acc" style={{ marginTop:8 }} onClick={()=>setModal(true)}>+ New Composition</button>
+          </div>
+        : <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:16 }}>
+            {comps.map(comp => {
+              const splash = mapSplash(comp.map);
+              const ags = getAgents(comp);
+              return (
+                <div key={comp.id} style={{ borderRadius:12,overflow:"hidden",border:"1px solid var(--b1)",background:"var(--s1)",transition:"all 0.2s",position:"relative" }}
+                  onMouseEnter={e=>{ e.currentTarget.style.borderColor="var(--b3)"; e.currentTarget.style.transform="translateY(-2px)"; }}
+                  onMouseLeave={e=>{ e.currentTarget.style.borderColor="var(--b1)"; e.currentTarget.style.transform="translateY(0)"; }}>
+                  <div style={{ position:"relative",height:140,overflow:"hidden",background:"var(--s3)" }}>
+                    {splash && <img src={splash} alt={comp.map} style={{ width:"100%",height:"100%",objectFit:"cover",filter:"brightness(0.45) saturate(0.8)" }}/>}
+                    <div style={{ position:"absolute",inset:0,background:"linear-gradient(to bottom,transparent 20%,rgba(10,10,15,0.95) 100%)" }}/>
+                    <div style={{ position:"absolute",bottom:12,left:14 }}>
+                      <div style={{ fontWeight:800,fontSize:18,color:"var(--t1)",marginBottom:5,lineHeight:1 }}>{comp.name}</div>
+                      <span className="chip chip-blue" style={{ fontSize:10 }}>{comp.map}</span>
+                    </div>
+                    <button onClick={()=>setConfirm(comp)} style={{ position:"absolute",top:8,right:8,background:"rgba(0,0,0,0.6)",border:"1px solid var(--b2)",borderRadius:6,color:"var(--t3)",cursor:"pointer",width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,backdropFilter:"blur(4px)" }}>🗑</button>
+                  </div>
+                  <div style={{ padding:"10px 12px",display:"flex",gap:5,alignItems:"center" }}>
+                    {ags.map((ag,i) => {
+                      const icon = agentIcon(ag);
+                      return icon
+                        ? <img key={i} src={icon} alt={ag} title={ag} style={{ width:32,height:32,borderRadius:6,objectFit:"cover",border:"1px solid var(--b2)" }}/>
+                        : <div key={i} title={ag} style={{ width:32,height:32,borderRadius:6,background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"var(--t2)",border:"1px solid var(--b2)",fontWeight:700 }}>{ag.slice(0,2)}</div>;
+                    })}
                   </div>
                 </div>
-                <button onClick={()=>setConfirm(c)} style={{ background:"transparent", border:"none", color:"var(--t3)", cursor:"pointer", fontSize:13, padding:"2px 6px" }}>✕</button>
-              </div>
-              <div style={{ padding:"11px 15px" }}><p style={{ fontSize:12, color:"var(--t2)", lineHeight:1.65 }}>{c.description}</p></div>
-            </div>
-          ))}
-        </div>
+              );
+            })}
+          </div>
       }
+
       {modal && (
         <Modal onClose={()=>setModal(false)} title="New Composition">
-          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-            <div><div className="label-sm" style={{ marginBottom:6 }}>Name</div><input type="text" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Jett Comp"/></div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              <div><div className="label-sm" style={{ marginBottom:6 }}>Map</div><select value={form.map} onChange={e=>setForm(f=>({...f,map:e.target.value}))}>{MAPS.map(m=><option key={m}>{m}</option>)}</select></div>
-              <div><div className="label-sm" style={{ marginBottom:6 }}>Side</div><select value={form.side} onChange={e=>setForm(f=>({...f,side:e.target.value}))}><option value="atk">Attack</option><option value="def">Defense</option></select></div>
+          <div style={{ fontSize:13,color:"var(--t3)",marginBottom:16 }}>Select 5 agents to create a composition</div>
+          <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+            <div><div className="label-sm" style={{ marginBottom:6 }}>Composition Name</div>
+              <input type="text" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Eg: Double Duelist Ascent"/>
+            </div>
+            <div><div className="label-sm" style={{ marginBottom:6 }}>Map</div>
+              <select value={form.map} onChange={e=>setForm(f=>({...f,map:e.target.value}))}>
+                <option value="">Select a map...</option>
+                {MAPS.map(m=><option key={m}>{m}</option>)}
+              </select>
             </div>
             <div>
-              <div className="label-sm" style={{ marginBottom:8 }}>Agents (pick up to 5)</div>
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                {AGENTS.map(a=>{ const on=form.agents.includes(a.name); return (
-                  <button key={a.name} onClick={()=>toggleAgent(a.name)} style={{ padding:"4px 10px", borderRadius:5, fontSize:12, fontWeight:600, cursor:"pointer", background:on?a.bg:"var(--s3)", color:on?a.color:"var(--t3)", border:`1px solid ${on?a.color+"44":"var(--b2)"}`, transition:"all 0.15s" }}>{a.name}</button>
-                ); })}
+              <div className="label-sm" style={{ marginBottom:8 }}>Agents</div>
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8 }}>
+                {[0,1,2,3,4].map(i=>(
+                  <div key={i} style={{ display:"flex",flexDirection:"column",gap:5,alignItems:"center" }}>
+                    {form.agents[i] && agentIcon(form.agents[i])
+                      ? <img src={agentIcon(form.agents[i])} alt={form.agents[i]} style={{ width:36,height:36,borderRadius:6,objectFit:"cover",border:"1px solid var(--acc)" }}/>
+                      : <div style={{ width:36,height:36,borderRadius:6,background:"var(--s3)",border:"1px solid var(--b2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"var(--t3)" }}>?</div>
+                    }
+                    <select value={form.agents[i]} onChange={e=>setAgent(i,e.target.value)}
+                      style={{ fontSize:11,padding:"4px 2px",textAlign:"center",width:"100%" }}>
+                      <option value="">...</option>
+                      {allAgentNames.map(a=><option key={a}>{a}</option>)}
+                    </select>
+                  </div>
+                ))}
               </div>
             </div>
-            <div><div className="label-sm" style={{ marginBottom:6 }}>Notes</div><textarea rows={3} style={{ resize:"vertical" }} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Describe roles, win conditions, playstyle..."/></div>
-            <div style={{ display:"flex", gap:8 }}>
-              <button className="btn btn-acc" style={{ flex:1, justifyContent:"center" }} onClick={add} disabled={!form.name.trim()}>Create</button>
+            <div style={{ display:"flex",gap:8,marginTop:4 }}>
               <button className="btn btn-ghost" onClick={()=>setModal(false)}>Cancel</button>
+              <button className="btn btn-acc" style={{ flex:1,justifyContent:"center" }}
+                onClick={add} disabled={!form.name.trim()||!form.map}>Create Composition</button>
             </div>
           </div>
         </Modal>
       )}
-      {confirm && (
-        <ConfirmModal title="Delete Composition" message={`Delete "${confirm.name}"?`}
-          onConfirm={()=>del(confirm.id)} onCancel={()=>setConfirm(null)}/>
-      )}
+      {confirm && <ConfirmModal title="Delete Composition" message={`Delete "${confirm.name}"?`} onConfirm={()=>del(confirm.id)} onCancel={()=>setConfirm(null)}/>}
     </div>
   );
 }
