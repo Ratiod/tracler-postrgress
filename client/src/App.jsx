@@ -3136,24 +3136,11 @@ function OCRScanner({ setPage }) {
     if (!imageBase64) return;
     setLoading(true); setError(null);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [{ role: "user", content: [
-            { type: "image", source: { type: "base64", media_type: imageMime, data: imageBase64 } },
-            { type: "text", text: `Extract all player rows from this Valorant scoreboard. Return ONLY a JSON array, no markdown or explanation. Each object must have exactly these keys:\n- name: player name string\n- agent: agent name string or null\n- team: "win" or "lose" (green rows = win, red rows = lose)\n- acs: average combat score number\n- k: kills number\n- d: deaths number\n- a: assists number\n- econ: econ rating number (can be negative)\n- fb: first bloods number\n- pl: plants number\n- def: defuses number\nReturn only the raw JSON array.` }
-          ]}]
-        })
-      });
-      const data = await res.json();
-      const text = (data.content || []).map(c => c.text || "").join("");
-      const clean = text.replace(/```json|```/g, "").trim();
-      setPlayers(JSON.parse(clean));
+      const res = await api.post("/api/ocr-scan", { imageBase64, imageMime });
+      if (res.error) throw new Error(res.error);
+      setPlayers(res.players);
     } catch(e) {
-      setError("Could not extract stats — make sure the screenshot shows a clear Valorant scoreboard.");
+      setError(e.message || "Could not extract stats — make sure the screenshot shows a clear Valorant scoreboard.");
     } finally { setLoading(false); }
   };
 
