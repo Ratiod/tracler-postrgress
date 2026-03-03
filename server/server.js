@@ -545,7 +545,7 @@ app.post("/api/ocr-scan", requireAuth, async (req, res) => {
     if (!geminiKey) return res.status(500).json({ error: "GEMINI_API_KEY not set on server" });
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
