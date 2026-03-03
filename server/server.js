@@ -122,6 +122,24 @@ async function initDB() {
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL DEFAULT ''
     );
+    CREATE TABLE IF NOT EXISTS comp_strats (
+      id          SERIAL PRIMARY KEY,
+      comp_id     INTEGER NOT NULL,
+      side        TEXT DEFAULT 'atk',
+      category    TEXT DEFAULT 'Pistol',
+      name        TEXT NOT NULL DEFAULT '',
+      image_data  TEXT DEFAULT '',
+      sort_order  INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS comp_blocks (
+      id         SERIAL PRIMARY KEY,
+      comp_id    INTEGER NOT NULL,
+      side       TEXT DEFAULT 'atk',
+      category   TEXT DEFAULT 'Pistol',
+      block_type TEXT DEFAULT 'text',
+      content    TEXT DEFAULT '',
+      sort_order INTEGER DEFAULT 0
+    );
   `);
 
   // Migrate: add gen_note to vods if missing
@@ -282,6 +300,61 @@ app.delete("/api/labels/:name", requireAdmin, async (req, res) => {
 });
 
 // ── STRATS ───────────────────────────────────────────────
+// ── COMP STRATS ──────────────────────────────────────────
+app.get("/api/comp-strats", requireAuth, async (req, res) => {
+  try {
+    const { comp_id } = req.query;
+    const q = comp_id
+      ? await pool.query("SELECT * FROM comp_strats WHERE comp_id=$1 ORDER BY sort_order,id", [comp_id])
+      : await pool.query("SELECT * FROM comp_strats ORDER BY sort_order,id");
+    res.json(q.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/comp-strats", requireAuth, async (req, res) => {
+  try {
+    const { comp_id, side="atk", category="Pistol", name="", image_data="", sort_order=0 } = req.body;
+    const { rows } = await pool.query(
+      "INSERT INTO comp_strats (comp_id,side,category,name,image_data,sort_order) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *",
+      [comp_id, side, category, name, image_data, sort_order]
+    );
+    res.json(rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.delete("/api/comp-strats/:id", requireAuth, async (req, res) => {
+  try { await pool.query("DELETE FROM comp_strats WHERE id=$1", [req.params.id]); res.json({ ok:true }); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/comp-blocks", requireAuth, async (req, res) => {
+  try {
+    const { comp_id } = req.query;
+    const q = comp_id
+      ? await pool.query("SELECT * FROM comp_blocks WHERE comp_id=$1 ORDER BY sort_order,id", [comp_id])
+      : await pool.query("SELECT * FROM comp_blocks ORDER BY sort_order,id");
+    res.json(q.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/comp-blocks", requireAuth, async (req, res) => {
+  try {
+    const { comp_id, side="atk", category="Pistol", block_type="text", content="", sort_order=0 } = req.body;
+    const { rows } = await pool.query(
+      "INSERT INTO comp_blocks (comp_id,side,category,block_type,content,sort_order) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *",
+      [comp_id, side, category, block_type, content, sort_order]
+    );
+    res.json(rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/comp-blocks/:id", requireAuth, async (req, res) => {
+  try {
+    const { content } = req.body;
+    const { rows } = await pool.query("UPDATE comp_blocks SET content=$1 WHERE id=$2 RETURNING *", [content, req.params.id]);
+    res.json(rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.delete("/api/comp-blocks/:id", requireAuth, async (req, res) => {
+  try { await pool.query("DELETE FROM comp_blocks WHERE id=$1", [req.params.id]); res.json({ ok:true }); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/strats", requireAuth, async (req, res) => {
   try { const { rows } = await pool.query("SELECT * FROM strats ORDER BY id"); res.json(rows); }
   catch (err) { res.status(500).json({ error: err.message }); }
