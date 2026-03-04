@@ -535,34 +535,35 @@ app.post("/api/scrims/import", requireAuth, async (req, res) => {
   }
 });
 
-// ── OCR SCAN PROXY (calls Gemini server-side) ─────────
+// ── OCR SCAN PROXY (calls Groq server-side) ─────────
 app.post("/api/ocr-scan", requireAuth, async (req, res) => {
   try {
     const { imageBase64, imageMime = "image/png" } = req.body;
     if (!imageBase64) return res.status(400).json({ error: "imageBase64 required" });
 
-    const geminiKey = process.env.GEMINI_API_KEY;
-    if (!geminiKey) return res.status(500).json({ error: "GEMINI_API_KEY not set on server" });
+    const groqKey = process.env.GROQ_API_KEY;
+    if (!groqKey) return res.status(500).json({ error: "GROQ_API_KEY not set on server" });
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [
-            { inline_data: { mime_type: imageMime, data: imageBase64 } },
-            { text: `Extract all player rows from this Valorant scoreboard. Return ONLY a JSON array, no markdown or explanation. Each object must have exactly these keys:\n- name: player name string\n- agent: agent name string or null\n- team: "win" or "lose" (green rows = win, red rows = lose)\n- acs: average combat score number\n- k: kills number\n- d: deaths number\n- a: assists number\n- econ: econ rating number (can be negative)\n- fb: first bloods number\n- pl: plants number\n- def: defuses number\nReturn only the raw JSON array.` }
-          ]}],
-          generationConfig: { temperature: 0, maxOutputTokens: 1000 }
-        })
-      }
-    );
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${groqKey}`,
+      },
+      body: JSON.stringify({
+        model: "meta-llama/llama-4-scout-17b-16e-instruct",
+        max_tokens: 1000,
+        messages: [{ role: "user", content: [
+          { type: "image_url", image_url: { url: `data:${imageMime};base64,${imageBase64}` } },
+          { type: "text", text: `Extract all player rows from this Valorant scoreboard. Return ONLY a JSON array, no markdown or explanation. Each object must have exactly these keys:\n- name: player name string\n- agent: agent name string or null\n- team: "win" or "lose" (green rows = win, red rows = lose)\n- acs: average combat score number\n- k: kills number\n- d: deaths number\n- a: assists number\n- econ: econ rating number (can be negative)\n- fb: first bloods number\n- pl: plants number\n- def: defuses number\nReturn only the raw JSON array.` }
+        ]}]
+      })
+    });
 
     const data = await response.json();
-    if (!response.ok) return res.status(response.status).json({ error: data?.error?.message || "Gemini API error" });
+    if (!response.ok) return res.status(response.status).json({ error: data?.error?.message || "Groq API error" });
 
-    const text  = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const text  = data.choices?.[0]?.message?.content || "";
     const clean = text.replace(/```json|```/g, "").trim();
     const players = JSON.parse(clean);
     res.json({ players });
